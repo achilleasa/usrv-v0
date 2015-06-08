@@ -143,6 +143,13 @@ func (client *Client) Request(ctx context.Context, msg *Message) <-chan ServerRe
 		msg.From = curEndpoint.(string)
 	}
 
+	// Check the supplied context for the present of a traceId. If found,
+	// inject it into the outgoing request headers
+	traceId := ctx.Value(CtxTraceId)
+	if traceId != nil {
+		msg.Headers[CtxTraceId] = traceId
+	}
+
 	// Assign the private queue name as the message reply target and
 	// the target endpoint as the "To" field of the outgoing message.
 	// Finally allocate a UUID for matching the async server reply

@@ -15,8 +15,9 @@ var (
 )
 
 // Context keys
-var (
+const (
 	CtxCurEndpoint = "curEndpoint"
+	CtxTraceId     = "traceId"
 )
 
 type Server struct {
