@@ -109,8 +109,9 @@ func (srv *Server) Serve() error {
 			return err
 		}
 
-		srv.Logger.Printf("Bound to endpoint %s\n", ep.Name)
-		go srv.serveEndpoint(binding.Messages, &ep)
+		go func(queue <-chan TransportMessage, ep Endpoint){
+			srv.serveEndpoint(queue, &ep)
+		}(binding.Messages, ep)
 	}
 
 	// Block till our context is cancelled
@@ -120,6 +121,8 @@ func (srv *Server) Serve() error {
 }
 
 func (srv *Server) serveEndpoint(incoming <-chan TransportMessage, ep *Endpoint) {
+	srv.Logger.Printf("Serving requests to endpoint %s\n", ep.Name)
+
 	for {
 		select {
 		case trMsg, ok := <-incoming:
