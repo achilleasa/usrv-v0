@@ -136,6 +136,10 @@ func (client *Client) worker() {
 
 func (client *Client) Request(ctx context.Context, msg *Message) <-chan ServerResponse {
 
+	if msg.Headers == nil {
+		msg.Headers = make(Header)
+	}
+
 	// Check the supplied context for the presence of curEndpoint. If it exists
 	// we will set it as the "From" field of the outgoing message
 	curEndpoint := ctx.Value(CtxCurEndpoint)
