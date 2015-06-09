@@ -1,34 +1,51 @@
 package middleware
 
 import (
-	"code.google.com/p/go-uuid/uuid"
-	"encoding/json"
-	"github.com/achilleasa/usrv"
-	"golang.org/x/net/context"
-	"log"
 	"os"
 	"time"
+
+	"code.google.com/p/go-uuid/uuid"
+	"github.com/achilleasa/usrv"
+	"golang.org/x/net/context"
 )
 
-type traceType string
+type TraceType string
 
+// The types of traces that are emitted by the Trace middleware.
 const (
-	Request  traceType = "REQ"
-	Response traceType = "RES"
+	Request  TraceType = "REQ"
+	Response TraceType = "RES"
 )
 
-type traceLog struct {
+// The TraceLog structure represents a trace entry
+// that is emitted by the Trace middleware.
+type TraceLog struct {
 	Timestamp     time.Time `json:"timestamp"`
 	TraceId       string    `json:"trace_id"`
 	CorrelationId string    `json:"correlation_id"`
-	Type          traceType `json:"type"`
+	Type          TraceType `json:"type"`
 	From          string    `json:"from"`
 	To            string    `json:"to"`
 	Host          string    `json:"host"`
 	Duration      int64     `json:"duration"`
 }
 
-func Trace(logger *log.Logger) usrv.EndpointOption {
+// The trace middleware emits TraceLog events to traceChan whenever the
+// server processes an incoming request.
+//
+// Two TraceLog entries will be emitted for each request, one for the incoming request
+// and one for the outgoing response.
+//
+// The middleware will inject a traceId for each incoming request into the context
+// that gets passed to the request handler. To ensure that any further RPC requests
+// that occur inside the wrapped handler are associated with the current request, the
+// handler should pass its context to any performed RPC client requests.
+//
+// This function is designed to emit events in non-blocking mode. If traceChan does
+// not have enough capacity to store a generated TraceLog message then it will be
+// silently dropped. Consequently, it is a good practice to ensure that traceChan is a
+// buffered channel.
+func Trace(traceChan chan TraceLog) usrv.EndpointOption {
 	return func(ep *usrv.Endpoint) error {
 		hostname, err := os.Hostname()
 		if err != nil {
@@ -52,10 +69,10 @@ func Trace(logger *log.Logger) usrv.EndpointOption {
 			}
 
 			// Inject trace into outgoing message
-			responseWriter.WriteHeader(usrv.CtxTraceId, traceId)
+			responseWriter.Header().Set(usrv.CtxTraceId, traceId)
 
-			// Trace incoming request
-			logEntry := traceLog{
+			// Trace incoming request. Use a select statement to ensure write is non-blocking.
+			traceEntry := TraceLog{
 				Timestamp:     time.Now(),
 				TraceId:       traceId,
 				CorrelationId: request.CorrelationId,
@@ -64,13 +81,16 @@ func Trace(logger *log.Logger) usrv.EndpointOption {
 				To:            request.To,
 				Host:          hostname,
 			}
-
-			entry, _ := json.Marshal(logEntry)
-			logger.Printf("%s", entry)
+			select {
+			case traceChan <- traceEntry:
+				// trace successfully added to channel
+			default:
+				// channel is full, skip trace
+			}
 
 			// Trace response when the handler returns
 			defer func(start time.Time) {
-				logEntry := traceLog{
+				traceEntry := TraceLog{
 					Timestamp:     time.Now(),
 					TraceId:       traceId,
 					CorrelationId: request.CorrelationId,
@@ -81,9 +101,12 @@ func Trace(logger *log.Logger) usrv.EndpointOption {
 					Duration:      time.Since(start).Nanoseconds(),
 				}
 
-				entry, _ := json.Marshal(logEntry)
-				logger.Printf("%s", entry)
-
+				select {
+				case traceChan <- traceEntry:
+				// trace successfully added to channel
+				default:
+					// channel is full, skip trace
+				}
 			}(time.Now())
 
 			// Invoke the original handler
