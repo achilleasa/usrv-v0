@@ -2,13 +2,17 @@ package middleware
 
 import (
 	"errors"
+	"time"
+
 	"github.com/achilleasa/usrv"
 	"golang.org/x/net/context"
-	"time"
 )
 
-// Apply a throttling middleware to the input handler and return a
-// new handler which limits request processing to maxConcurrent requests
+// Apply a throttling middleware to the input handler that throttles
+// request handling to maxConcurrent requests.
+//
+// If the pending requests exceed the specified timeout, they will be aborted
+// with ErrTimeout.
 func Throttle(maxConcurrent int, timeout time.Duration) usrv.EndpointOption {
 
 	return func(ep *usrv.Endpoint) error {

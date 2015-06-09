@@ -1,17 +1,23 @@
 package usrv
 
 import (
-	"code.google.com/p/go-uuid/uuid"
 	"errors"
-	"golang.org/x/net/context"
 	"sync"
+
+	"code.google.com/p/go-uuid/uuid"
+	"golang.org/x/net/context"
 )
 
+// This structure models a server response to an outgoing client request.
 type ServerResponse struct {
-	Msg   *Message
+	// The server response message.
+	Message *Message
+
+	// An error reported by the remote server. It will be nil if no error was reported.
 	Error error
 }
 
+// An structure for enqueuing request jobs to the background worker.
 type job struct {
 	msg     *Message
 	resChan chan ServerResponse
@@ -19,33 +25,32 @@ type job struct {
 
 type Client struct {
 
-	// The client root context
+	// The client root context.
 	ctx context.Context
 
-	// A context-provided method for shutting down pending requests
+	// A context-provided method for shutting down pending requests.
 	cancel context.CancelFunc
 
-	// The transport used for handling requests
+	// The transport used for handling requests.
 	transport Transport
 
-	// The client transport binding
+	// The client transport binding.
 	binding *Binding
 
-	// This waitgroup tracks ongoing requests so we can
-	// properly drain them before terminating the client
+	// The pending group tracks ongoing requests so we can
+	// properly drain them before terminating the client.
 	pending sync.WaitGroup
 
-	// pendingMap maps pending Correlation Ids to the channel
-	// used for the received response
+	// pendingMap maps pending Correlation Ids to the channel used for the received response.
 	pendingMap map[string]chan ServerResponse
 
-	// A channel for submitting requests to the background worker
+	// A channel for submitting requests to the background worker.
 	workQueue chan job
 
 	endpoint string
 }
 
-// Create a new client with default settings
+// Create a new client for the given endpoint.
 func NewClient(transport Transport, endpoint string) (*Client, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -78,13 +83,15 @@ func NewClient(transport Transport, endpoint string) (*Client, error) {
 	return client, nil
 }
 
+// A background worker that processes incoming server responses, matches them to pending
+// requests and routes the response to the appropriate channel so it may be consumed.
 func (client *Client) worker() {
 	for {
 		select {
 		case <-client.ctx.Done():
 			break
 		case transportMsg := <-client.binding.Messages:
-			// Try to match the corellation id to a pending request.
+			// Try to match the correlation id to a pending request.
 			// If we cannot find a match, ignore the response
 			resChan, exists := client.pendingMap[transportMsg.Message.CorrelationId]
 			if !exists {
@@ -134,6 +141,8 @@ func (client *Client) worker() {
 	}
 }
 
+// Create a new request to the underlying endpoint. Returns a read-only channel that
+// will emit a ServerResponse once it is received by the server.
 func (client *Client) Request(ctx context.Context, msg *Message) <-chan ServerResponse {
 
 	if msg.Headers == nil {

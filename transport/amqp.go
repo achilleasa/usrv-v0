@@ -2,14 +2,16 @@ package transport
 
 import (
 	"fmt"
-	"github.com/achilleasa/usrv"
-	"github.com/streadway/amqp"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"log"
 	"time"
+
+	"github.com/achilleasa/usrv"
+	"github.com/streadway/amqp"
+	"golang.org/x/net/context"
 )
 
+// The Amqp type represents a transport service that can talk to AMQP servers (e.g. rabbitmq)
 type Amqp struct {
 
 	// The logger for server messages
@@ -28,6 +30,8 @@ type Amqp struct {
 	connected bool
 }
 
+// Create a new Amqp transport that will connect to uri. A logger instance
+// may also be specified if you require logging output from the transport.
 func NewAmqp(uri string, logger *log.Logger) *Amqp {
 
 	if logger == nil {
@@ -40,6 +44,7 @@ func NewAmqp(uri string, logger *log.Logger) *Amqp {
 	}
 }
 
+// Connect to the AMQP server.
 func (a *Amqp) Dial() error {
 	var err error
 
@@ -67,6 +72,13 @@ func (a *Amqp) Dial() error {
 	return nil
 }
 
+// Bind a client or server endpoint to the AMQP server.
+//
+// For server bindings we use the endpoint name  as a queue to listen to for messages. For
+// client bindings a private amqp queue will be allocated so the server can route RPC responses
+// to this particular client.
+//
+// This function will spawn a go-routine for handling incoming messages that will exit when ctx is cancelled.
 func (a *Amqp) Bind(ctx context.Context, bindingType usrv.BindingType, endpoint string) (*usrv.Binding, error) {
 	var queue amqp.Queue
 	var err error
@@ -135,7 +147,7 @@ func (a *Amqp) Bind(ctx context.Context, bindingType usrv.BindingType, endpoint 
 				if bindingType == usrv.ServerBinding {
 					resWriter = &amqpResponseWriter{
 						amqp: a,
-						msg: &usrv.Message{
+						message: &usrv.Message{
 							Headers:       make(usrv.Header),
 							From:          endpoint,  // this endpoint
 							To:            d.ReplyTo, // the reply endpoint of the sender
@@ -176,7 +188,7 @@ func (a *Amqp) Bind(ctx context.Context, bindingType usrv.BindingType, endpoint 
 	return binding, nil
 }
 
-// Send a message
+// Send a message.
 func (a *Amqp) Send(msg *usrv.Message) error {
 	err := a.channel.Publish(
 		"",
@@ -196,41 +208,48 @@ func (a *Amqp) Send(msg *usrv.Message) error {
 	return err
 }
 
+// The amqpResponseWriter provides an amqp-specific implementation of a ResponseWriter.
 type amqpResponseWriter struct {
+	// The amqp instance handle.
 	amqp *Amqp
-	msg  *usrv.Message
 
+	// An allocated message for encoding the written data.
+	message *usrv.Message
+
+	// Indicates whether this response has been flushed.
 	flushed bool
 }
 
+// Get back the headers that will be sent with the response payload.
+// Modifying headers after invoking Write (or WriteError) has no effect.
 func (w *amqpResponseWriter) Header() usrv.Header {
-	return w.msg.Headers
+	return w.message.Headers
 }
 
-func (w *amqpResponseWriter) WriteHeader(name string, value interface{}) {
-	w.msg.Headers[name] = value
-}
-
+// Write an error to the response.
 func (w *amqpResponseWriter) WriteError(err error) error {
 	if w.flushed {
 		return usrv.ErrResponseSent
 	}
 
-	w.msg.Headers["error"] = err.Error()
+	w.message.Headers.Set("error", err.Error())
 
 	return nil
 }
 
+// Write the data to the response and return the number of bytes that were actually written.
 func (w *amqpResponseWriter) Write(data []byte) (int, error) {
 	if w.flushed {
 		return 0, usrv.ErrResponseSent
 	}
 
-	w.msg.Payload = data
+	w.message.Payload = data
 
 	return len(data), nil
 }
 
+// Flush the written data and headers and close the ResponseWriter. Repeated invocations
+// of Close() should fail with ErrResponseSent.
 func (w *amqpResponseWriter) Close() error {
 	if w.flushed {
 		return usrv.ErrResponseSent
@@ -238,5 +257,5 @@ func (w *amqpResponseWriter) Close() error {
 
 	w.flushed = true
 
-	return w.amqp.Send(w.msg)
+	return w.amqp.Send(w.message)
 }

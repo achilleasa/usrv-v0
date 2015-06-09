@@ -8,42 +8,43 @@ import (
 	"sync"
 )
 
-// Errors introduced by RPC server
+// Errors introduced by RPC server.
 var (
 	ErrTimeout      = errors.New("Request timeout")
 	ErrResponseSent = errors.New("Response already sent")
 )
 
-// Context keys
+// Context keys.
 const (
 	CtxCurEndpoint = "curEndpoint"
 	CtxTraceId     = "traceId"
 )
 
+// An RPC server implementation.
 type Server struct {
 
-	// The root server context
+	// The root server context.
 	ctx context.Context
 
-	// A context-provided method for shutting down pending requests
+	// A context-provided method for shutting down pending requests.
 	cancel context.CancelFunc
 
-	// The list of registered endpoints
+	// The list of registered endpoints.
 	endpoints []Endpoint
 
-	// The logger for server messages
+	// The logger for server messages.
 	Logger *log.Logger
 
-	// The transport used for handling requests
+	// The transport used for handling requests.
 	transport Transport
 
 	// This waitgroup tracks ongoing requests so we can
-	// properly drain them before terminating the server
+	// properly drain them before terminating the server.
 	pending sync.WaitGroup
 }
 
-// Create a new server with default settings. One or more ServerOption
-// may be specified to override defaults
+// Create a new server with default settings. One or more ServerOption functional arguments
+// may be specified to override defaults.
 func NewServer(transport Transport, options ...ServerOption) (*Server, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -59,7 +60,7 @@ func NewServer(transport Transport, options ...ServerOption) (*Server, error) {
 	return server, server.SetOption(options...)
 }
 
-// Set one or more server options
+// Set one or more ServerOptions.
 func (srv *Server) SetOption(options ...ServerOption) error {
 	// Apply any options
 	for _, opt := range options {
@@ -72,7 +73,8 @@ func (srv *Server) SetOption(options ...ServerOption) error {
 }
 
 // Register a handler for requests to RPC endpoint identified by path. One
-// or more EndpointOption may be specified to further customize the endpoint
+// or more EndpointOption functional arguments may be specified to further
+// customize the endpoint by applying for example middleware.
 func (srv *Server) Handle(path string, handler Handler, options ...EndpointOption) {
 	ep := Endpoint{path, handler}
 
@@ -85,8 +87,8 @@ func (srv *Server) Handle(path string, handler Handler, options ...EndpointOptio
 	srv.endpoints = append(srv.endpoints, ep)
 }
 
-// Dial the register transport srv.transport and then call Serve
-// to start processing incoming RPC requests
+// Dial the registered transport provider and then call Serve()
+// to start processing incoming RPC requests.
 func (srv *Server) ListenAndServe() error {
 	var err error
 
@@ -99,7 +101,8 @@ func (srv *Server) ListenAndServe() error {
 	return srv.Serve()
 }
 
-// Bind each defined endpoint to srv.transport and process incoming connections
+// Bind each defined endpoint to the transport and start processing incoming requests.
+// This function will block until Close() is invoked.
 func (srv *Server) Serve() error {
 	for _, ep := range srv.endpoints {
 
@@ -120,6 +123,8 @@ func (srv *Server) Serve() error {
 	return nil
 }
 
+// Implement a message processing loop for a bound endpoint. A separate go-routine will
+// be spawned for each incoming message. This function will block until Close() is invoked.
 func (srv *Server) serveEndpoint(incoming <-chan TransportMessage, ep *Endpoint) {
 	srv.Logger.Printf("Serving requests to endpoint %s\n", ep.Name)
 
@@ -152,6 +157,8 @@ func (srv *Server) serveEndpoint(incoming <-chan TransportMessage, ep *Endpoint)
 	}
 }
 
+// Shutdown the server. This function will unbind any bound endpoints and block until
+// any pending requests have been drained.
 func (srv *Server) Close() {
 
 	srv.Logger.Printf("Server shutdown in progress; waiting for pending requests to drain\n")
