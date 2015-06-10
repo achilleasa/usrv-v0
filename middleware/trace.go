@@ -27,7 +27,8 @@ type TraceLog struct {
 	From          string    `json:"from"`
 	To            string    `json:"to"`
 	Host          string    `json:"host"`
-	Duration      int64     `json:"duration"`
+	Duration      int64     `json:"duration,omitempty"`
+	Error         string    `json:"error,omitempty"`
 }
 
 // The trace middleware emits TraceLog events to traceChan whenever the
@@ -60,7 +61,7 @@ func Trace(traceChan chan TraceLog) usrv.EndpointOption {
 			// Check if the request contains a trace id. If no trace is
 			// available allocate a new traceId and inject it in the
 			// request context that gets passed to the handler
-			trace := request.Headers[usrv.CtxTraceId]
+			trace := request.Headers.Get(usrv.CtxTraceId)
 			if trace == nil {
 				traceId = uuid.New()
 				ctx = context.WithValue(ctx, usrv.CtxTraceId, traceId)
@@ -90,6 +91,14 @@ func Trace(traceChan chan TraceLog) usrv.EndpointOption {
 
 			// Trace response when the handler returns
 			defer func(start time.Time) {
+
+				var errMsg string
+
+				errVal := responseWriter.Header().Get("error")
+				if errVal != nil {
+					errMsg = errVal.(string)
+				}
+
 				traceEntry := TraceLog{
 					Timestamp:     time.Now(),
 					TraceId:       traceId,
@@ -99,6 +108,7 @@ func Trace(traceChan chan TraceLog) usrv.EndpointOption {
 					To:            request.From,
 					Host:          hostname,
 					Duration:      time.Since(start).Nanoseconds(),
+					Error:         errMsg,
 				}
 
 				select {
