@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 
+	"time"
+
 	"code.google.com/p/go-uuid/uuid"
 	"golang.org/x/net/context"
 )
@@ -45,7 +47,10 @@ type Client struct {
 	pendingMap map[string]chan ServerResponse
 
 	// A channel for submitting requests to the background worker.
-	workQueue chan job
+	jobChan chan job
+
+	// A channel for cancelling ongoing requests by sending their correlationIds
+	cancelChan chan string
 
 	endpoint string
 }
@@ -60,7 +65,8 @@ func NewClient(transport Transport, endpoint string) (*Client, error) {
 		cancel:     cancel,
 		transport:  transport,
 		pendingMap: make(map[string]chan ServerResponse),
-		workQueue:  make(chan job),
+		jobChan:    make(chan job),
+		cancelChan: make(chan string),
 		endpoint:   endpoint,
 	}
 
@@ -112,7 +118,7 @@ func (client *Client) worker() {
 			}
 			close(resChan)
 
-		case req := <-client.workQueue:
+		case req := <-client.jobChan:
 
 			// Send request. If we get an error while sending fail the request immediately
 			err := client.transport.Send(req.msg)
@@ -128,7 +134,25 @@ func (client *Client) worker() {
 			// Add the reply channel to the pendingMap using the correlationId
 			// as the key so we can match the response later on.
 			client.pendingMap[req.msg.CorrelationId] = req.resChan
+
+		case correlationId := <-client.cancelChan:
+			// Received a cancellation for a pending request
+			resChan, exists := client.pendingMap[correlationId]
+			if !exists {
+				continue
+			}
+
+			// Remove from pending requests send the error and close the channel
+			delete(client.pendingMap, correlationId)
+
+			resChan <- ServerResponse{
+				nil,
+				ErrCancelled,
+			}
+			close(resChan)
+
 		}
+
 	}
 
 	// Fail any pending requests with a timeout error
@@ -143,7 +167,24 @@ func (client *Client) worker() {
 
 // Create a new request to the underlying endpoint. Returns a read-only channel that
 // will emit a ServerResponse once it is received by the server.
+//
+// If ctx is cancelled while the request is in progress, the client will fail the
+// request with ErrTimeout
 func (client *Client) Request(ctx context.Context, msg *Message) <-chan ServerResponse {
+	return client.RequestWithTimeout(ctx, msg, 0)
+}
+
+// Create a new request to the underlying endpoint with a client timeout. Returns a
+// read-only channel that will emit a ServerResponse once it is received by the server.
+//
+// If the timeout expires or ctx is cancelled while the request is in progress, the client
+// will fail the request with ErrTimeout
+func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, timeout time.Duration) <-chan ServerResponse {
+
+	// If a non-zero timeout is specified, wrap the supplied ctx with a context that times out
+	if timeout != 0 {
+		ctx, _ = context.WithTimeout(ctx, timeout)
+	}
 
 	if msg.Headers == nil {
 		msg.Headers = make(Header)
@@ -171,15 +212,42 @@ func (client *Client) Request(ctx context.Context, msg *Message) <-chan ServerRe
 	msg.To = client.endpoint
 	msg.CorrelationId = uuid.New()
 
-	// The request uses a buffered channel so our background worker does not
-	// block if the client consumer does not read from the returned channel
+	// Allocate a buffered channel for the response. We use a buffered channel to
+	// ensure that our job queue does not block if the requester never reads from the
+	// returned channel
+	clientResChan := make(chan ServerResponse, 1)
+
 	reqJob := job{
 		msg,
 		make(chan ServerResponse, 1),
 	}
 
-	// Submit to worker
-	client.workQueue <- reqJob
+	// Submit to worker and start a go-routine to process job replies and timeouts
+	client.jobChan <- reqJob
+	go func(ctx context.Context, correlationId string, jobResChan chan ServerResponse, clientResChan chan ServerResponse) {
+		select {
+		case <-ctx.Done():
+			// ctx was cancelled or timeout exceeded.
+			if ctx.Err() == context.Canceled {
+				clientResChan <- ServerResponse{
+					nil,
+					ErrCancelled,
+				}
+			} else {
+				clientResChan <- ServerResponse{
+					nil,
+					ErrTimeout,
+				}
+			}
 
-	return reqJob.resChan
+			// Send cancellation request to worker
+			client.cancelChan <- correlationId
+		case res := <-jobResChan:
+			clientResChan <- res
+		}
+
+		close(clientResChan)
+	}(ctx, msg.CorrelationId, reqJob.resChan, clientResChan)
+
+	return clientResChan
 }
