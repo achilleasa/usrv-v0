@@ -2,14 +2,16 @@ package usrv
 
 import (
 	"errors"
-	"golang.org/x/net/context"
 	"log"
 	"os"
 	"sync"
+
+	"golang.org/x/net/context"
 )
 
 // Errors introduced by RPC server.
 var (
+	ErrCancelled    = errors.New("Request was cancelled")
 	ErrTimeout      = errors.New("Request timeout")
 	ErrResponseSent = errors.New("Response already sent")
 )
@@ -112,7 +114,7 @@ func (srv *Server) Serve() error {
 			return err
 		}
 
-		go func(queue <-chan TransportMessage, ep Endpoint){
+		go func(queue <-chan TransportMessage, ep Endpoint) {
 			srv.serveEndpoint(queue, &ep)
 		}(binding.Messages, ep)
 	}
