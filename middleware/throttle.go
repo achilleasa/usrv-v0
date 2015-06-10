@@ -41,7 +41,11 @@ func Throttle(maxConcurrent int, timeout time.Duration) usrv.EndpointOption {
 				// Return back token
 				tokens <- struct{}{}
 			case <-fctx.Done():
-				responseWriter.WriteError(usrv.ErrTimeout)
+				if fctx.Err() == context.Canceled {
+					responseWriter.WriteError(usrv.ErrCancelled)
+				} else {
+					responseWriter.WriteError(usrv.ErrTimeout)
+				}
 			}
 
 		})
