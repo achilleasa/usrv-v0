@@ -11,8 +11,9 @@ import (
 // Apply a throttling middleware to the input handler that throttles
 // request handling to maxConcurrent requests.
 //
-// If the pending requests exceed the specified timeout, they will be aborted
-// with ErrTimeout.
+// If a non-zero timeout is specified and a pending request cannot be
+// serviced within the specified timeout, it will be aborted with
+// ErrTimeout.
 func Throttle(maxConcurrent int, timeout time.Duration) usrv.EndpointOption {
 
 	return func(ep *usrv.Endpoint) error {
@@ -30,22 +31,21 @@ func Throttle(maxConcurrent int, timeout time.Duration) usrv.EndpointOption {
 		// Wrap original method
 		originalHandler := ep.Handler
 		ep.Handler = usrv.HandlerFunc(func(ctx context.Context, responseWriter usrv.ResponseWriter, request *usrv.Message) {
-			fctx, cancel := context.WithTimeout(ctx, timeout)
-			defer cancel()
+			if timeout > 0 {
+				var cancelFunc context.CancelFunc
+				ctx, cancelFunc = context.WithTimeout(ctx, timeout)
+				defer cancelFunc()
+			}
 
 			select {
 			case <-tokens:
 				// We got a token, execute request
-				originalHandler.Serve(fctx, responseWriter, request)
+				originalHandler.Serve(ctx, responseWriter, request)
 
 				// Return back token
 				tokens <- struct{}{}
-			case <-fctx.Done():
-				if fctx.Err() == context.Canceled {
-					responseWriter.WriteError(usrv.ErrCancelled)
-				} else {
-					responseWriter.WriteError(usrv.ErrTimeout)
-				}
+			case <-ctx.Done():
+				responseWriter.WriteError(ctx.Err())
 			}
 
 		})

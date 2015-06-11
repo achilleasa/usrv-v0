@@ -11,8 +11,8 @@ import (
 
 // Errors introduced by RPC server.
 var (
-	ErrCancelled    = errors.New("Request was cancelled")
-	ErrTimeout      = errors.New("Request timeout")
+	ErrCancelled    = context.Canceled
+	ErrTimeout      = context.DeadlineExceeded
 	ErrResponseSent = errors.New("Response already sent")
 )
 

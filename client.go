@@ -228,16 +228,9 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 		select {
 		case <-ctx.Done():
 			// ctx was cancelled or timeout exceeded.
-			if ctx.Err() == context.Canceled {
-				clientResChan <- ServerResponse{
-					nil,
-					ErrCancelled,
-				}
-			} else {
-				clientResChan <- ServerResponse{
-					nil,
-					ErrTimeout,
-				}
+			clientResChan <- ServerResponse{
+				nil,
+				ctx.Err(),
 			}
 
 			// Send cancellation request to worker
