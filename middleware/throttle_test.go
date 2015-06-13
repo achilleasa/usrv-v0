@@ -5,6 +5,8 @@ import (
 
 	"time"
 
+	"sync"
+
 	"github.com/achilleasa/usrv"
 	"github.com/achilleasa/usrv/usrvtest"
 	"golang.org/x/net/context"
@@ -62,26 +64,35 @@ func TestThrottleTimeout(t *testing.T) {
 		}()
 	}
 
-	// Wait 2 ms. The second request should have timed-out by now
-	<-time.After(time.Millisecond * 2)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
 
-	var rw usrv.ResponseWriter
-	rw = <-done
+		// Wait 2 ms. The second request should have timed-out by now
+		<-time.After(time.Millisecond * 2)
 
-	errMsg := rw.Header().Get("error")
-	if errMsg == nil {
-		t.Fatalf("Expected request to fail")
-	} else if errMsg.(string) != usrv.ErrTimeout.Error() {
-		t.Fatalf("Expected request to fail with ErrTimeout. Instead failed with: %s", errMsg)
-	}
+		var rw usrv.ResponseWriter
+		rw = <-done
 
-	// Allow first request to finish
-	trigger <- struct{}{}
-	rw = <-done
+		errMsg := rw.Header().Get("error")
+		if errMsg == nil {
+			t.Fatalf("Expected request to fail")
+		} else if errMsg.(string) != usrv.ErrTimeout.Error() {
+			t.Fatalf("Expected request to fail with ErrTimeout. Instead failed with: %s", errMsg)
+		}
 
-	if rw.Header().Get("status") == nil || rw.Header().Get("error") != nil {
-		t.Fatalf("Expected request to complete successfully")
-	}
+		// Allow first request to finish
+		trigger <- struct{}{}
+		rw = <-done
+
+		if rw.Header().Get("status") == nil || rw.Header().Get("error") != nil {
+			t.Fatalf("Expected request to complete successfully")
+		}
+
+		wg.Done()
+	}()
+
+	wg.Wait()
 }
 
 func TestThrottleCancellation(t *testing.T) {
@@ -117,23 +128,31 @@ func TestThrottleCancellation(t *testing.T) {
 		}()
 	}
 
-	// Cancel context
-	cancelCtx()
-	var rw usrv.ResponseWriter
-	rw = <-done
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		// Cancel context
+		cancelCtx()
+		var rw usrv.ResponseWriter
+		rw = <-done
 
-	errMsg := rw.Header().Get("error")
-	if errMsg == nil {
-		t.Fatalf("Expected request to fail")
-	} else if errMsg.(string) != usrv.ErrCancelled.Error() {
-		t.Fatalf("Expected request to fail with ErrCancelled. Instead failed with: %s", errMsg)
-	}
+		errMsg := rw.Header().Get("error")
+		if errMsg == nil {
+			t.Fatalf("Expected request to fail")
+		} else if errMsg.(string) != usrv.ErrCancelled.Error() {
+			t.Fatalf("Expected request to fail with ErrCancelled. Instead failed with: %s", errMsg)
+		}
 
-	// Allow first request to finish
-	trigger <- struct{}{}
-	rw = <-done
+		// Allow first request to finish
+		trigger <- struct{}{}
+		rw = <-done
 
-	if rw.Header().Get("status") == nil || rw.Header().Get("error") != nil {
-		t.Fatalf("Expected request to complete successfully")
-	}
+		if rw.Header().Get("status") == nil || rw.Header().Get("error") != nil {
+			t.Fatalf("Expected request to complete successfully")
+		}
+
+		wg.Done()
+	}()
+
+	wg.Wait()
 }

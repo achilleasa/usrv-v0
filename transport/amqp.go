@@ -180,9 +180,9 @@ func (a *Amqp) Bind(ctx context.Context, bindingType usrv.BindingType, endpoint 
 	}()
 
 	binding := &usrv.Binding{
-		bindingType,
-		queue.Name,
-		msgChan,
+		Type:     bindingType,
+		Name:     queue.Name,
+		Messages: msgChan,
 	}
 
 	return binding, nil

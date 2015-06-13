@@ -95,7 +95,18 @@ func (client *Client) worker() {
 	for {
 		select {
 		case <-client.ctx.Done():
-			break
+
+			// Fail any pending requests with a timeout error
+			for _, resChan := range client.pendingMap {
+				resChan <- ServerResponse{
+					nil,
+					ErrTimeout,
+				}
+				close(resChan)
+			}
+
+			// exit worker
+			return
 		case transportMsg := <-client.binding.Messages:
 			// Try to match the correlation id to a pending request.
 			// If we cannot find a match, ignore the response
@@ -153,15 +164,6 @@ func (client *Client) worker() {
 
 		}
 
-	}
-
-	// Fail any pending requests with a timeout error
-	for _, resChan := range client.pendingMap {
-		resChan <- ServerResponse{
-			nil,
-			ErrTimeout,
-		}
-		close(resChan)
 	}
 }
 
