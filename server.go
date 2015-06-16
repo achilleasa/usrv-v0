@@ -1,19 +1,11 @@
 package usrv
 
 import (
-	"errors"
 	"log"
 	"os"
 	"sync"
 
 	"golang.org/x/net/context"
-)
-
-// Errors introduced by RPC server.
-var (
-	ErrCancelled    = context.Canceled
-	ErrTimeout      = context.DeadlineExceeded
-	ErrResponseSent = errors.New("Response already sent")
 )
 
 // Context keys.
