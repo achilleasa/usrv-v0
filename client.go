@@ -39,7 +39,7 @@ type Client struct {
 	// The client transport binding.
 	binding *Binding
 
-	// The pending group tracks ongoing requests so we can
+	// The pending group tracks active go-routines so we can
 	// properly drain them before terminating the client.
 	pending sync.WaitGroup
 
@@ -84,6 +84,7 @@ func NewClient(transport Transport, endpoint string) (*Client, error) {
 	}
 
 	// Spawn worker
+	client.pending.Add(1)
 	go client.worker()
 
 	return client, nil
@@ -92,22 +93,27 @@ func NewClient(transport Transport, endpoint string) (*Client, error) {
 // A background worker that processes incoming server responses, matches them to pending
 // requests and routes the response to the appropriate channel so it may be consumed.
 func (client *Client) worker() {
+	defer client.pending.Done()
+
 	for {
 		select {
 		case <-client.ctx.Done():
-
-			// Fail any pending requests with a timeout error
+			// Fail any pending requests
 			for _, resChan := range client.pendingMap {
 				resChan <- ServerResponse{
 					nil,
-					ErrTimeout,
+					ErrClosed,
 				}
 				close(resChan)
 			}
 
 			// exit worker
 			return
-		case transportMsg := <-client.binding.Messages:
+		case transportMsg, ok := <-client.binding.Messages:
+			if !ok {
+				continue
+			}
+
 			// Try to match the correlation id to a pending request.
 			// If we cannot find a match, ignore the response
 			resChan, exists := client.pendingMap[transportMsg.Message.CorrelationId]
@@ -120,7 +126,15 @@ func (client *Client) worker() {
 
 			var err error
 			if errMsg, exists := transportMsg.Message.Headers["error"]; exists {
-				err = errors.New(errMsg.(string))
+				// Check for known error types
+				if errMsg == ErrCancelled.Error() {
+					err = ErrCancelled
+				} else if errMsg == ErrTimeout.Error() {
+					err = ErrTimeout
+				} else {
+					// Just instanciate a new error
+					err = errors.New(errMsg.(string))
+				}
 			}
 
 			resChan <- ServerResponse{
@@ -129,7 +143,11 @@ func (client *Client) worker() {
 			}
 			close(resChan)
 
-		case req := <-client.jobChan:
+		case req, ok := <-client.jobChan:
+
+			if !ok {
+				continue
+			}
 
 			// Send request. If we get an error while sending fail the request immediately
 			err := client.transport.Send(req.msg)
@@ -146,7 +164,11 @@ func (client *Client) worker() {
 			// as the key so we can match the response later on.
 			client.pendingMap[req.msg.CorrelationId] = req.resChan
 
-		case correlationId := <-client.cancelChan:
+		case correlationId, ok := <-client.cancelChan:
+			if !ok {
+				continue
+			}
+
 			// Received a cancellation for a pending request
 			resChan, exists := client.pendingMap[correlationId]
 			if !exists {
@@ -183,6 +205,19 @@ func (client *Client) Request(ctx context.Context, msg *Message) <-chan ServerRe
 // will fail the request with ErrTimeout
 func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, timeout time.Duration) <-chan ServerResponse {
 
+	// Allocate a buffered channel for the response. We use a buffered channel to
+	// ensure that our job queue does not block if the requester never reads from the
+	// returned channel
+	clientResChan := make(chan ServerResponse, 1)
+
+	if client.jobChan == nil {
+		clientResChan <- ServerResponse{
+			nil,
+			ErrClosed,
+		}
+		return clientResChan
+	}
+
 	// If a non-zero timeout is specified, wrap the supplied ctx with a context that times out
 	if timeout != 0 {
 		ctx, _ = context.WithTimeout(ctx, timeout)
@@ -214,11 +249,6 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 	msg.To = client.endpoint
 	msg.CorrelationId = uuid.New()
 
-	// Allocate a buffered channel for the response. We use a buffered channel to
-	// ensure that our job queue does not block if the requester never reads from the
-	// returned channel
-	clientResChan := make(chan ServerResponse, 1)
-
 	reqJob := job{
 		msg,
 		make(chan ServerResponse, 1),
@@ -226,7 +256,9 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 
 	// Submit to worker and start a go-routine to process job replies and timeouts
 	client.jobChan <- reqJob
+	client.pending.Add(1)
 	go func(ctx context.Context, correlationId string, jobResChan chan ServerResponse, clientResChan chan ServerResponse) {
+		defer client.pending.Done()
 		select {
 		case <-ctx.Done():
 			// ctx was cancelled or timeout exceeded.
@@ -245,4 +277,21 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 	}(ctx, msg.CorrelationId, reqJob.resChan, clientResChan)
 
 	return clientResChan
+}
+
+// Shutdown the client and abort any pending requests with ErrCancelled.
+// Invoking any client method after invoking Close() will result in an ErrClientClosed
+func (client *Client) Close() {
+	if client.jobChan == nil {
+		return
+	}
+	client.cancel()
+
+	close(client.jobChan)
+	close(client.cancelChan)
+	client.jobChan = nil
+	client.cancelChan = nil
+
+	// Wait for go-routines to die
+	client.pending.Wait()
 }
