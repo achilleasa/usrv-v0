@@ -105,3 +105,24 @@ func TestInMemoryTransport(t *testing.T) {
 	}
 
 }
+
+func TestFailMasks(t *testing.T) {
+	var err error
+	transport := NewTransport()
+	transport.SetFailMask(FailDial | FailBind | FailSend)
+
+	err = transport.Dial()
+	if err == nil {
+		t.Fatalf("Expected Dial() to fail")
+	}
+
+	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "foo")
+	if err == nil {
+		t.Fatalf("Expected Bind() to fail")
+	}
+
+	err = transport.Send(nil)
+	if err == nil {
+		t.Fatalf("Expected Send() to fail")
+	}
+}
