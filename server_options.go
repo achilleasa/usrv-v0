@@ -13,3 +13,12 @@ func WithLogger(logger *log.Logger) ServerOption {
 		return nil
 	}
 }
+
+// Attach an event listener for server-generated events
+func EventListener(listener chan ServerEvent) ServerOption {
+	return func(srv *Server) error {
+		srv.eventListeners = append(srv.eventListeners, listener)
+
+		return nil
+	}
+}

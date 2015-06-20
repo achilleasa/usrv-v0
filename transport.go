@@ -92,7 +92,7 @@ type Binding struct {
 	Name string
 
 	// A channel for incoming messages.
-	Messages <-chan TransportMessage
+	Messages chan TransportMessage
 }
 
 // Objects implementing the Transport interface can be used
