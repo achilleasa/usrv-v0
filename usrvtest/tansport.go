@@ -20,14 +20,12 @@ const (
 // InMemoryTransport is an implementation of usrv.Transport that
 // uses ResponseRecorder as its ResponseWriter implementation
 type InMemoryTransport struct {
-	channels map[string]chan usrv.TransportMessage
 	bindings map[string]*usrv.Binding
 	failMask FailMask
 }
 
 func NewTransport() *InMemoryTransport {
 	return &InMemoryTransport{
-		channels: make(map[string]chan usrv.TransportMessage),
 		bindings: make(map[string]*usrv.Binding),
 	}
 }
@@ -72,7 +70,6 @@ func (t *InMemoryTransport) Bind(ctx context.Context, bindingType usrv.BindingTy
 		}
 	}
 
-	t.channels[binding.Name] = msgChan
 	t.bindings[binding.Name] = binding
 
 	return binding, nil
@@ -85,7 +82,7 @@ func (t *InMemoryTransport) Send(msg *usrv.Message) error {
 	}
 
 	// Forward to proper address
-	msgChan, exists := t.channels[msg.To]
+	binding, exists := t.bindings[msg.To]
 	if !exists {
 		return errors.New("Unknown destination endpoint")
 	}
@@ -105,10 +102,24 @@ func (t *InMemoryTransport) Send(msg *usrv.Message) error {
 		)
 	}
 
-	msgChan <- usrv.TransportMessage{
+	binding.Messages <- usrv.TransportMessage{
 		ResponseWriter: resWriter,
 		Message:        msg,
 	}
 
 	return nil
+}
+
+// Simulate a connection reset. The transport will behave as if it lost its
+// connectivity, re-established it and rebound any defined endpoints.
+func (t *InMemoryTransport) Reset(reconnectTimeout time.Duration) {
+	for _, binding := range t.bindings {
+		close(binding.Messages)
+	}
+
+	<-time.After(reconnectTimeout)
+
+	for _, binding := range t.bindings {
+		binding.Messages = make(chan usrv.TransportMessage, 1)
+	}
 }
