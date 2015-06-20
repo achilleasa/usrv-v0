@@ -312,7 +312,7 @@ func TestClientHeaders(t *testing.T) {
 	}
 }
 
-func TestTransportErrors(t *testing.T) {
+func TestClientTransportErrors(t *testing.T) {
 
 	var err error
 
