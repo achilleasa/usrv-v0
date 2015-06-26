@@ -126,3 +126,55 @@ func TestFailMasks(t *testing.T) {
 		t.Fatalf("Expected Send() to fail")
 	}
 }
+
+func TestNotifications(t *testing.T) {
+	var err error
+	transport := NewTransport()
+
+	listener := make(chan error)
+	transport.NotifyClose(listener)
+
+	err = transport.Dial()
+	if err != nil {
+		t.Fatalf("Dial() failed: %v", err)
+	}
+
+	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "foo")
+	if err != nil {
+		t.Fatalf("Error binding server endpoint: %v", err)
+	}
+
+	go func() {
+		transport.Close()
+	}()
+
+	evt, ok := <-listener
+	if !ok {
+		t.Fatalf("Expected a close error to be sent to the listener channel")
+	}
+	if evt != usrv.ErrClosed {
+		t.Fatalf("Expected listener to receive ErrClosed; got %v", evt)
+	}
+
+	// Simulate a reset
+	transport.NotifyClose(listener)
+
+	err = transport.Dial()
+	if err != nil {
+		t.Fatalf("Dial() failed: %v", err)
+	}
+
+	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "foo")
+	if err != nil {
+		t.Fatalf("Error binding server endpoint: %v", err)
+	}
+
+	go func() {
+		transport.Reset()
+	}()
+
+	_, ok = <-listener
+	if ok {
+		t.Fatalf("Expected a listener channel to be closed")
+	}
+}

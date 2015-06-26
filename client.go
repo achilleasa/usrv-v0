@@ -21,7 +21,7 @@ type ServerResponse struct {
 
 // An structure for enqueuing request jobs to the background worker.
 type job struct {
-	msg     *Message
+	msg     Message
 	resChan chan ServerResponse
 }
 
@@ -36,6 +36,9 @@ type Client struct {
 	// The transport used for handling requests.
 	transport Transport
 
+	// A listener for transport close events.
+	closeNotifChan chan error
+
 	// The client transport binding.
 	binding *Binding
 
@@ -49,68 +52,102 @@ type Client struct {
 	// A channel for submitting requests to the background worker.
 	jobChan chan job
 
-	// A channel for cancelling ongoing requests by sending their correlationIds
-	cancelChan chan string
+	// A channel for cancelling ongoing requests by sending their correlationIds.
+	jobCancelChan chan string
 
+	// The endpoint this client connects to.
 	endpoint string
 }
 
 // Create a new client for the given endpoint.
-func NewClient(transport Transport, endpoint string) (*Client, error) {
+func NewClient(transport Transport, endpoint string) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create server with default settings
 	client := &Client{
-		ctx:        ctx,
-		cancel:     cancel,
-		transport:  transport,
-		pendingMap: make(map[string]chan ServerResponse),
-		jobChan:    make(chan job),
-		cancelChan: make(chan string),
-		endpoint:   endpoint,
-	}
-
-	var err error
-	err = client.transport.Dial()
-	if err != nil {
-		return nil, err
-	}
-
-	// Bind to the endpoint
-	client.binding, err = client.transport.Bind(ctx, ClientBinding, endpoint)
-
-	if err != nil {
-		return nil, err
+		ctx:           ctx,
+		cancel:        cancel,
+		transport:     transport,
+		pendingMap:    make(map[string]chan ServerResponse),
+		jobChan:       make(chan job),
+		jobCancelChan: make(chan string),
+		endpoint:      endpoint,
 	}
 
 	// Spawn worker
 	client.pending.Add(1)
 	go client.worker()
 
-	return client, nil
+	return client
+}
+
+// Dial the transport, bind the endpoint listener and spawn a worker for multiplexing requests.
+func (client *Client) Dial() error {
+
+	var err error
+	err = client.transport.Dial()
+	if err != nil {
+		// Force a nil binding
+		client.binding = &Binding{}
+		return err
+	}
+
+	// Register transport close listener and then bind to the endpoint
+	client.closeNotifChan = make(chan error, 1)
+	client.transport.NotifyClose(client.closeNotifChan)
+	client.binding, err = client.transport.Bind(client.ctx, ClientBinding, client.endpoint)
+	if err != nil {
+		// Force a nil binding
+		client.binding = &Binding{}
+		return err
+	}
+
+	return nil
 }
 
 // A background worker that processes incoming server responses, matches them to pending
 // requests and routes the response to the appropriate channel so it may be consumed.
 func (client *Client) worker() {
-	defer client.pending.Done()
+	var dialErr = client.Dial()
+
+	defer func() {
+
+		close(client.jobChan)
+		close(client.jobCancelChan)
+		client.jobChan = nil
+		client.jobCancelChan = nil
+
+		// Fail any pending requests with ErrClosed or a dial error
+		var failReason = ErrClosed
+		if dialErr != nil {
+			failReason = dialErr
+		}
+
+		for _, resChan := range client.pendingMap {
+			resChan <- ServerResponse{
+				nil,
+				failReason,
+			}
+			close(resChan)
+		}
+
+		client.pending.Done()
+	}()
 
 	for {
 		select {
 		case <-client.ctx.Done():
-			// Fail any pending requests
-			for _, resChan := range client.pendingMap {
-				resChan <- ServerResponse{
-					nil,
-					ErrClosed,
-				}
-				close(resChan)
+			return
+		case _, normalShutdown := <-client.closeNotifChan:
+			if normalShutdown {
+				return
 			}
 
-			// exit worker
-			return
+			// We lost our connection. Redial endpoint
+			dialErr = client.Dial()
 		case transportMsg, ok := <-client.binding.Messages:
 			if !ok {
+				client.binding.Messages = nil
 				continue
 			}
 
@@ -132,7 +169,6 @@ func (client *Client) worker() {
 				} else if errMsg == ErrTimeout.Error() {
 					err = ErrTimeout
 				} else {
-					// Just instanciate a new error
 					err = errors.New(errMsg.(string))
 				}
 			}
@@ -143,14 +179,14 @@ func (client *Client) worker() {
 			}
 			close(resChan)
 
-		case req, ok := <-client.jobChan:
+		case req := <-client.jobChan:
 
-			if !ok {
-				continue
+			// Send request; fail immediately if we got a dial error or the send fails
+			var err = dialErr
+			if err == nil {
+				req.msg.ReplyTo = client.binding.Name
+				err = client.transport.Send(&req.msg)
 			}
-
-			// Send request. If we get an error while sending fail the request immediately
-			err := client.transport.Send(req.msg)
 			if err != nil {
 				req.resChan <- ServerResponse{
 					nil,
@@ -164,10 +200,7 @@ func (client *Client) worker() {
 			// as the key so we can match the response later on.
 			client.pendingMap[req.msg.CorrelationId] = req.resChan
 
-		case correlationId, ok := <-client.cancelChan:
-			if !ok {
-				continue
-			}
+		case correlationId := <-client.jobCancelChan:
 
 			// Received a cancellation for a pending request
 			resChan, exists := client.pendingMap[correlationId]
@@ -183,9 +216,7 @@ func (client *Client) worker() {
 				ErrCancelled,
 			}
 			close(resChan)
-
 		}
-
 	}
 }
 
@@ -245,12 +276,11 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 	// the target endpoint as the "To" field of the outgoing message.
 	// Finally allocate a UUID for matching the async server reply
 	// to this request.
-	msg.ReplyTo = client.binding.Name
 	msg.To = client.endpoint
 	msg.CorrelationId = uuid.New()
 
 	reqJob := job{
-		msg,
+		*msg,
 		make(chan ServerResponse, 1),
 	}
 
@@ -268,7 +298,7 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 			}
 
 			// Send cancellation request to worker
-			client.cancelChan <- correlationId
+			client.jobCancelChan <- correlationId
 		case res := <-jobResChan:
 			clientResChan <- res
 		}
@@ -282,15 +312,11 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 // Shutdown the client and abort any pending requests with ErrCancelled.
 // Invoking any client method after invoking Close() will result in an ErrClientClosed
 func (client *Client) Close() {
-	if client.jobChan == nil {
+	// Already closed
+	if client.ctx.Err() != nil {
 		return
 	}
 	client.cancel()
-
-	close(client.jobChan)
-	close(client.cancelChan)
-	client.jobChan = nil
-	client.cancelChan = nil
 
 	// Wait for go-routines to die
 	client.pending.Wait()

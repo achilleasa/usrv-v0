@@ -4,6 +4,8 @@ import (
 	"errors"
 	"time"
 
+	"sync"
+
 	"code.google.com/p/go-uuid/uuid"
 	"github.com/achilleasa/usrv"
 	"golang.org/x/net/context"
@@ -20,13 +22,17 @@ const (
 // InMemoryTransport is an implementation of usrv.Transport that
 // uses ResponseRecorder as its ResponseWriter implementation
 type InMemoryTransport struct {
-	bindings map[string]*usrv.Binding
-	failMask FailMask
+	sync.Mutex
+	closeListeners []chan error
+	bindings       map[string]*usrv.Binding
+	failMask       FailMask
+	connected      bool
 }
 
 func NewTransport() *InMemoryTransport {
 	return &InMemoryTransport{
-		bindings: make(map[string]*usrv.Binding),
+		closeListeners: make([]chan error, 0),
+		bindings:       make(map[string]*usrv.Binding),
 	}
 }
 
@@ -37,15 +43,49 @@ func (t *InMemoryTransport) SetFailMask(mask FailMask) {
 
 // Connect to the transport.
 func (t *InMemoryTransport) Dial() error {
-	if (t.failMask & FailDial) == FailDial {
-		return errors.New("Dial failed")
+	t.Lock()
+	defer t.Unlock()
+
+	if t.connected {
+		return nil
 	}
+
+	if (t.failMask & FailDial) == FailDial {
+		return usrv.ErrDialFailed
+	}
+
+	t.connected = true
 	return nil
+}
+
+func (t *InMemoryTransport) Close() {
+	t.Lock()
+	defer t.Unlock()
+
+	if !t.connected {
+		return
+	}
+
+	for _, binding := range t.bindings {
+		close(binding.Messages)
+	}
+
+	for _, listener := range t.closeListeners {
+		listener <- usrv.ErrClosed
+	}
+
+	// Clear all listeners and bindings
+	t.connected = false
+	t.bindings = make(map[string]*usrv.Binding)
+	t.closeListeners = make([]chan error, 0)
 }
 
 // Bind an endpoint to the transport. The implementation should monitor the passed
 // context and terminate the binding once the context is cancelled.
 func (t *InMemoryTransport) Bind(ctx context.Context, bindingType usrv.BindingType, endpoint string) (*usrv.Binding, error) {
+	t.Lock()
+	defer t.Unlock()
+
 	if (t.failMask & FailBind) == FailBind {
 		return nil, errors.New("Bind failed")
 	}
@@ -71,7 +111,10 @@ func (t *InMemoryTransport) Bind(ctx context.Context, bindingType usrv.BindingTy
 	}
 
 	t.bindings[binding.Name] = binding
-
+	cnt := 0
+	for _ = range t.bindings {
+		cnt++
+	}
 	return binding, nil
 }
 
@@ -110,16 +153,29 @@ func (t *InMemoryTransport) Send(msg *usrv.Message) error {
 	return nil
 }
 
-// Simulate a connection reset. The transport will behave as if it lost its
-// connectivity, re-established it and rebound any defined endpoints.
-func (t *InMemoryTransport) Reset(reconnectTimeout time.Duration) {
+func (t *InMemoryTransport) NotifyClose(c chan error) {
+	t.Lock()
+	defer t.Unlock()
+
+	t.closeListeners = append(t.closeListeners, c)
+}
+
+// Simulate a connection reset.
+func (t *InMemoryTransport) Reset() {
+	t.Lock()
+	defer t.Unlock()
+
 	for _, binding := range t.bindings {
 		close(binding.Messages)
 	}
 
-	<-time.After(reconnectTimeout)
-
-	for _, binding := range t.bindings {
-		binding.Messages = make(chan usrv.TransportMessage, 1)
+	// Close all listeners to indicate a reset
+	for _, listener := range t.closeListeners {
+		close(listener)
 	}
+
+	// Clear all listeners and bindings
+	t.bindings = make(map[string]*usrv.Binding)
+	t.closeListeners = make([]chan error, 0)
+	t.connected = false
 }

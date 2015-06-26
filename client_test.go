@@ -18,15 +18,12 @@ func TestClient(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	serverBinding, err := transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client, err := usrv.NewClient(transport, "com.test.server")
-	if err != nil {
-		t.Fatalf("Error creating client: %v", err)
-	}
+	client := usrv.NewClient(transport, "com.test.server")
 	defer client.Close()
 
 	reqMsg := &usrv.Message{
@@ -34,11 +31,10 @@ func TestClient(t *testing.T) {
 	}
 	resChan := client.Request(context.Background(), reqMsg)
 
-	// Now that the reqMsg has been populated by the client use the data to
-	// setup a response
+	clientReq := <-serverBinding.Messages
 	resMsg := &usrv.Message{
 		From:          "com.test.server",
-		To:            reqMsg.ReplyTo,       // reply to the private endpoint specified by the client
+		To:            clientReq.Message.ReplyTo,
 		CorrelationId: reqMsg.CorrelationId, // use generated correlationId
 		Payload:       []byte("test response"),
 	}
@@ -67,10 +63,7 @@ func TestRequestTimeout(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client, err := usrv.NewClient(transport, "com.test.server")
-	if err != nil {
-		t.Fatalf("Error creating client: %v", err)
-	}
+	client := usrv.NewClient(transport, "com.test.server")
 	defer client.Close()
 
 	reqMsg := &usrv.Message{
@@ -90,7 +83,7 @@ func TestRequestTimeout(t *testing.T) {
 
 }
 
-func TestServerError(t *testing.T) {
+func TestResponseWithServerError(t *testing.T) {
 
 	var err error
 
@@ -101,10 +94,7 @@ func TestServerError(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client, err := usrv.NewClient(transport, "com.test.server")
-	if err != nil {
-		t.Fatalf("Error creating client: %v", err)
-	}
+	client := usrv.NewClient(transport, "com.test.server")
 	defer client.Close()
 
 	type testSpec struct {
@@ -137,13 +127,13 @@ func TestServerError(t *testing.T) {
 		// setup a response with an error
 		resMsg := &usrv.Message{
 			From:          "com.test.server",
-			To:            reqMsg.ReplyTo,       // reply to the private endpoint specified by the client
 			CorrelationId: reqMsg.CorrelationId, // use generated correlationId
 			Headers:       usrv.Header{"error": test.errMsg},
 		}
 
 		// Dequeue request, enqueue response and wait for the client to pick it up
-		<-serverBinding.Messages
+		clientMsg := <-serverBinding.Messages
+		resMsg.To = clientMsg.Message.ReplyTo
 		transport.Send(resMsg)
 
 		serverRes := <-resChan
@@ -172,7 +162,7 @@ func TestClientClose(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client, err := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -215,12 +205,12 @@ func TestHandleReplyWithUnknownId(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	serverBinding, err := transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client, err := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -231,10 +221,12 @@ func TestHandleReplyWithUnknownId(t *testing.T) {
 	}
 	resChan := client.Request(context.Background(), reqMsg)
 
+	clientReq := <-serverBinding.Messages
+
 	// Send a mock response to the client with an unknown correlation id
 	resMsg := &usrv.Message{
 		From:          "com.test.server",
-		To:            reqMsg.ReplyTo, // reply to the private endpoint specified by the client
+		To:            clientReq.Message.ReplyTo,
 		CorrelationId: "0xdeadbeed",
 		Payload:       []byte("I see unknown requests"),
 	}
@@ -243,7 +235,7 @@ func TestHandleReplyWithUnknownId(t *testing.T) {
 	// Send the correct response
 	resMsg = &usrv.Message{
 		From:          "com.test.server",
-		To:            reqMsg.ReplyTo,       // reply to the private endpoint specified by the client
+		To:            clientReq.Message.ReplyTo,
 		CorrelationId: reqMsg.CorrelationId, // use generated correlationId
 		Payload:       []byte("test response"),
 	}
@@ -266,7 +258,7 @@ func TestClientHeaders(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client, err := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -324,19 +316,22 @@ func TestClientTransportErrors(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client, err := usrv.NewClient(transport, "com.test.server")
-	if err == nil || err.Error() != "Dial failed" {
-		t.Fatalf("Expected 'Dial failed' error; got %v", err)
+	client := usrv.NewClient(transport, "com.test.server")
+	err = client.Dial()
+	if err == nil || err != usrv.ErrDialFailed {
+		t.Fatalf("Expected '%s' error; got %v", usrv.ErrDialFailed.Error(), err)
 	}
 
 	transport.SetFailMask(usrvtest.FailBind)
-	client, err = usrv.NewClient(transport, "com.test.server")
+	client = usrv.NewClient(transport, "com.test.server")
+	err = client.Dial()
 	if err == nil || err.Error() != "Bind failed" {
 		t.Fatalf("Expected 'Bind failed' error; got %v", err)
 	}
 
 	transport.SetFailMask(usrvtest.FailSend)
-	client, err = usrv.NewClient(transport, "com.test.server")
+	client = usrv.NewClient(transport, "com.test.server")
+	err = client.Dial()
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -349,5 +344,41 @@ func TestClientTransportErrors(t *testing.T) {
 	serverRes := <-resChan
 	if serverRes.Error == nil || serverRes.Error.Error() != "Send failed" {
 		t.Fatalf("Expected 'Send failed' error; got %v", err)
+	}
+}
+
+func TestClientNonRecoverableTransportReset(t *testing.T) {
+
+	var err error
+
+	transport := usrvtest.NewTransport()
+
+	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	if err != nil {
+		t.Fatalf("Error binding server endpoint: %v", err)
+	}
+
+	client := usrv.NewClient(transport, "com.test.server")
+	if err != nil {
+		t.Fatalf("Error creating client: %v", err)
+	}
+	defer client.Close()
+
+	transport.SetFailMask(usrvtest.FailDial)
+	transport.Reset()
+
+	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	if err != nil {
+		t.Fatalf("Error binding server endpoint: %v", err)
+	}
+
+	reqMsg := &usrv.Message{
+		Payload: []byte("test request"),
+	}
+	resChan := client.Request(context.Background(), reqMsg)
+
+	serverRes := <-resChan
+	if serverRes.Error != usrv.ErrDialFailed {
+		t.Fatalf("Expected a '%s' error; got %v", usrv.ErrDialFailed.Error(), serverRes.Error)
 	}
 }

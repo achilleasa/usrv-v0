@@ -12,4 +12,5 @@ var (
 	ErrTimeout      = context.DeadlineExceeded
 	ErrResponseSent = errors.New("Response already sent")
 	ErrClosed       = errors.New("Connection closed")
+	ErrDialFailed   = errors.New("Failed to connect")
 )

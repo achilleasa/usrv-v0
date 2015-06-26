@@ -101,10 +101,17 @@ type Transport interface {
 	// Connect to the transport.
 	Dial() error
 
+	// Disconnect.
+	Close()
+
 	// Bind an endpoint to the transport. The implementation should monitor the passed
 	// context and terminate the binding once the context is cancelled.
 	Bind(ctx context.Context, bindingType BindingType, endpoint string) (*Binding, error)
 
 	// Send a message.
 	Send(msg *Message) error
+
+	// Register a listener for receiving close notifications. The transport will emit an error if
+	// the transport is cleanly shut down or close the channel if the connection is reset.
+	NotifyClose(c chan error)
 }

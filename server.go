@@ -37,6 +37,9 @@ type Server struct {
 	// Server event listeners.
 	eventListeners []chan ServerEvent
 
+	// transport close listener
+	closeNotifChan chan error
+
 	// The logger for server messages.
 	Logger *log.Logger
 }
@@ -97,19 +100,22 @@ func (srv *Server) Handle(path string, handler Handler, options ...EndpointOptio
 func (srv *Server) ListenAndServe() error {
 	var err error
 
+	// Allocate and register close listener
+	srv.closeNotifChan = make(chan error, 1)
+	srv.transport.NotifyClose(srv.closeNotifChan)
+
 	// Connect to transport
 	err = srv.transport.Dial()
 	if err != nil {
 		return err
 	}
 
-	return srv.Serve()
+	return srv.serve()
 }
 
 // Bind each defined endpoint to the transport and start processing incoming requests.
 // This function will block until Close() is invoked.
-func (srv *Server) Serve() error {
-	srv.emitEvent(EvtStarted, "")
+func (srv *Server) serve() error {
 
 	for _, ep := range srv.endpoints {
 
@@ -124,36 +130,41 @@ func (srv *Server) Serve() error {
 		}(binding, ep)
 	}
 
-	// Block till our context is cancelled
-	<-srv.ctx.Done()
+	srv.emitEvent(EvtStarted, "")
+
+	select {
+	case <-srv.ctx.Done():
+		// server is shutting down
+	case _, normalShutdown := <-srv.closeNotifChan:
+		if normalShutdown {
+			srv.Logger.Printf("Transport shutdown complete")
+			break
+		}
+
+		// We lost our connection. We should attempt to reconnect and rebind
+		srv.emitEvent(EvtTransportReset, "")
+		srv.Logger.Printf("Transport connection reset; attempting to reconnect")
+		err := srv.ListenAndServe()
+		if err != nil {
+			srv.Logger.Panic(err)
+		}
+	}
 
 	return nil
 }
 
 // Implement a message processing loop for a bound endpoint. A separate go-routine will
-// be spawned for each incoming message. This function will block until Close() is invoked.
+// be spawned for each incoming message. This function exit if the server is closed or
+// the transport connection is lost.
 func (srv *Server) serveEndpoint(binding *Binding, ep *Endpoint) {
 	srv.emitEvent(EvtServing, ep.Name)
-
-	var waitingForRebind chan struct{}
 
 	for {
 		select {
 		case trMsg, ok := <-binding.Messages:
 			if !ok {
 				srv.Logger.Printf("Lost transport binding for endpoint %s", ep.Name)
-				binding.Messages = nil
-
-				// To ensure that our loop does not block while we wait for
-				// the binding to be restored, we will setup the closed waitingForRebind channel
-				waitingForRebind = make(chan struct{})
-				close(waitingForRebind)
-				continue
-			}
-
-			if waitingForRebind != nil {
-				waitingForRebind = nil
-				srv.Logger.Printf("Re-established transport binding for endpoint %s", ep.Name)
+				return
 			}
 
 			// Spawn go-routing to handle request
@@ -173,11 +184,6 @@ func (srv *Server) serveEndpoint(binding *Binding, ep *Endpoint) {
 				}
 
 			}()
-		case <-srv.ctx.Done():
-			return
-		case <-waitingForRebind:
-			// Dummy always matching case so that our select does not deadlock
-			// if our binding goes away
 		}
 	}
 }
