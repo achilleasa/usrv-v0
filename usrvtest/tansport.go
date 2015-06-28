@@ -27,6 +27,7 @@ type InMemoryTransport struct {
 	bindings       map[string]*usrv.Binding
 	failMask       FailMask
 	connected      bool
+	dialPolicy     usrv.DialPolicy
 }
 
 func NewTransport() *InMemoryTransport {
@@ -50,11 +51,22 @@ func (t *InMemoryTransport) Dial() error {
 		return nil
 	}
 
+	if t.dialPolicy != nil {
+		wait, err := t.dialPolicy.NextRetry()
+		if err != nil {
+			return usrv.ErrDialFailed
+		}
+		<-time.After(wait)
+	}
+
 	if (t.failMask & FailDial) == FailDial {
 		return usrv.ErrDialFailed
 	}
 
 	t.connected = true
+	if t.dialPolicy != nil {
+		t.dialPolicy.ResetAttempts()
+	}
 	return nil
 }
 
@@ -178,4 +190,8 @@ func (t *InMemoryTransport) Reset() {
 	t.bindings = make(map[string]*usrv.Binding)
 	t.closeListeners = make([]chan error, 0)
 	t.connected = false
+}
+
+func (t *InMemoryTransport) SetDialPolicy(policy usrv.DialPolicy) {
+	t.dialPolicy = policy
 }
