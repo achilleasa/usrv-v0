@@ -95,7 +95,7 @@ func (client *Client) Dial() error {
 	// Register transport close listener and then bind to the endpoint
 	client.closeNotifChan = make(chan error, 1)
 	client.transport.NotifyClose(client.closeNotifChan)
-	client.binding, err = client.transport.Bind(client.ctx, ClientBinding, client.endpoint)
+	client.binding, err = client.transport.Bind(ClientBinding, client.endpoint)
 	if err != nil {
 		// Force a nil binding
 		client.binding = &Binding{}

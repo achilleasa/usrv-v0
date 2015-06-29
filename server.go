@@ -119,7 +119,7 @@ func (srv *Server) serve() error {
 
 	for _, ep := range srv.endpoints {
 
-		binding, err := srv.transport.Bind(srv.ctx, ServerBinding, ep.Name)
+		binding, err := srv.transport.Bind(ServerBinding, ep.Name)
 		if err != nil {
 			srv.Close()
 			return err

@@ -8,7 +8,6 @@ import (
 
 	"code.google.com/p/go-uuid/uuid"
 	"github.com/achilleasa/usrv"
-	"golang.org/x/net/context"
 )
 
 type FailMask int
@@ -92,9 +91,8 @@ func (t *InMemoryTransport) Close() {
 	t.closeListeners = make([]chan error, 0)
 }
 
-// Bind an endpoint to the transport. The implementation should monitor the passed
-// context and terminate the binding once the context is cancelled.
-func (t *InMemoryTransport) Bind(ctx context.Context, bindingType usrv.BindingType, endpoint string) (*usrv.Binding, error) {
+// Bind an endpoint to the transport.
+func (t *InMemoryTransport) Bind(bindingType usrv.BindingType, endpoint string) (*usrv.Binding, error) {
 	t.Lock()
 	defer t.Unlock()
 

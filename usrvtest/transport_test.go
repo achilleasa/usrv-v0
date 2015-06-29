@@ -8,7 +8,6 @@ import (
 	"bytes"
 
 	"github.com/achilleasa/usrv"
-	"golang.org/x/net/context"
 )
 
 func TestInMemoryTransport(t *testing.T) {
@@ -37,7 +36,7 @@ func TestInMemoryTransport(t *testing.T) {
 	}
 
 	// Try a client -> server -> client conversation
-	serverBinding, err := transport.Bind(context.Background(), usrv.ServerBinding, ep)
+	serverBinding, err := transport.Bind(usrv.ServerBinding, ep)
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -45,7 +44,7 @@ func TestInMemoryTransport(t *testing.T) {
 		t.Fatalf("Expected server binding to be named %s; got %s", ep, serverBinding.Name)
 	}
 
-	clientBinding, err := transport.Bind(context.Background(), usrv.ClientBinding, ep)
+	clientBinding, err := transport.Bind(usrv.ClientBinding, ep)
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -122,7 +121,7 @@ func TestFailMasks(t *testing.T) {
 		t.Fatalf("Expected Dial() to fail")
 	}
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "foo")
+	_, err = transport.Bind(usrv.ServerBinding, "foo")
 	if err == nil {
 		t.Fatalf("Expected Bind() to fail")
 	}
@@ -185,7 +184,7 @@ func TestNotifications(t *testing.T) {
 		t.Fatalf("Dial() failed: %v", err)
 	}
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "foo")
+	_, err = transport.Bind(usrv.ServerBinding, "foo")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -210,7 +209,7 @@ func TestNotifications(t *testing.T) {
 		t.Fatalf("Dial() failed: %v", err)
 	}
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "foo")
+	_, err = transport.Bind(usrv.ServerBinding, "foo")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}

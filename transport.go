@@ -1,10 +1,6 @@
 package usrv
 
-import (
-	"time"
-
-	"golang.org/x/net/context"
-)
+import "time"
 
 type BindingType int
 
@@ -111,7 +107,7 @@ type Transport interface {
 
 	// Bind an endpoint to the transport. The implementation should monitor the passed
 	// context and terminate the binding once the context is cancelled.
-	Bind(ctx context.Context, bindingType BindingType, endpoint string) (*Binding, error)
+	Bind(bindingType BindingType, endpoint string) (*Binding, error)
 
 	// Send a message.
 	Send(msg *Message) error

@@ -18,7 +18,7 @@ func TestClient(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	serverBinding, err := transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	serverBinding, err := transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -58,7 +58,7 @@ func TestRequestTimeout(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	_, err = transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestResponseWithServerError(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	serverBinding, err := transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	serverBinding, err := transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestClientClose(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	_, err = transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestHandleReplyWithUnknownId(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	serverBinding, err := transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	serverBinding, err := transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestClientHeaders(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	serverBinding, err := transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	serverBinding, err := transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestClientTransportErrors(t *testing.T) {
 	transport := usrvtest.NewTransport()
 	transport.SetFailMask(usrvtest.FailDial)
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	_, err = transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -353,7 +353,7 @@ func TestClientNonRecoverableTransportReset(t *testing.T) {
 
 	transport := usrvtest.NewTransport()
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	_, err = transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestClientNonRecoverableTransportReset(t *testing.T) {
 	transport.SetFailMask(usrvtest.FailDial)
 	transport.Reset()
 
-	_, err = transport.Bind(context.Background(), usrv.ServerBinding, "com.test.server")
+	_, err = transport.Bind(usrv.ServerBinding, "com.test.server")
 	if err != nil {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
