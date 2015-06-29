@@ -202,6 +202,7 @@ func TestNotifications(t *testing.T) {
 	}
 
 	// Simulate a reset
+	listener = make(chan error)
 	transport.NotifyClose(listener)
 
 	err = transport.Dial()

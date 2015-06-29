@@ -112,7 +112,7 @@ type Transport interface {
 	// Send a message.
 	Send(msg *Message) error
 
-	// Register a listener for receiving close notifications. The transport will emit an error if
-	// the transport is cleanly shut down or close the channel if the connection is reset.
+	// Register a listener for receiving close notifications. The transport will emit an error and
+	// close the channel if the transport is cleanly shut down or close the channel if the connection is reset.
 	NotifyClose(c chan error)
 }

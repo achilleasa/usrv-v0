@@ -83,6 +83,7 @@ func (t *InMemoryTransport) Close() {
 
 	for _, listener := range t.closeListeners {
 		listener <- usrv.ErrClosed
+		close(listener)
 	}
 
 	// Clear all listeners and bindings
