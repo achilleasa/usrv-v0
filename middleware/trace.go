@@ -11,15 +11,15 @@ import (
 
 type TraceType string
 
-// The types of traces that are emitted by the Trace middleware.
+// The types of traces that are emitted by the Tracer middleware.
 const (
 	Request  TraceType = "REQ"
 	Response TraceType = "RES"
 )
 
-// The TraceLog structure represents a trace entry
-// that is emitted by the Trace middleware.
-type TraceLog struct {
+// The TraceEntry structure represents a trace entry
+// that is emitted by the Tracer middleware.
+type TraceEntry struct {
 	Timestamp     time.Time `json:"timestamp"`
 	TraceId       string    `json:"trace_id"`
 	CorrelationId string    `json:"correlation_id"`
@@ -31,7 +31,40 @@ type TraceLog struct {
 	Error         string    `json:"error,omitempty"`
 }
 
-// The trace middleware emits TraceLog events to traceChan whenever the
+// A Trace is a list of TraceLog entries.
+type Trace []TraceEntry
+
+// Get Trace len. Implements sort.Interface
+func (t Trace) Len() int {
+	return len(t)
+}
+
+// Compare entries. Implements sort.Interface
+func (t Trace) Less(l, r int) bool {
+	left := t[l]
+	right := t[r]
+
+	// Compare by timestamp
+	if left.Timestamp.Before(right.Timestamp) {
+		return true
+	} else if left.Timestamp.After(right.Timestamp) {
+		return false
+	}
+
+	// If timestamps are equal, prefer Requests over Responses
+	if left.Type == Request && right.Type == Response {
+		return true
+	}
+
+	return false
+}
+
+// Swap tracelog entries. Implements sort.Interface
+func (t Trace) Swap(l, r int) {
+	t[l], t[r] = t[r], t[l]
+}
+
+// The tracer middleware emits TraceLog events to traceChan whenever the
 // server processes an incoming request.
 //
 // Two TraceLog entries will be emitted for each request, one for the incoming request
@@ -46,7 +79,7 @@ type TraceLog struct {
 // not have enough capacity to store a generated TraceLog message then it will be
 // silently dropped. Consequently, it is a good practice to ensure that traceChan is a
 // buffered channel.
-func Trace(traceChan chan TraceLog) usrv.EndpointOption {
+func Tracer(traceChan chan TraceEntry) usrv.EndpointOption {
 	return func(ep *usrv.Endpoint) error {
 		hostname, err := os.Hostname()
 		if err != nil {
@@ -73,7 +106,7 @@ func Trace(traceChan chan TraceLog) usrv.EndpointOption {
 			responseWriter.Header().Set(usrv.CtxTraceId, traceId)
 
 			// Trace incoming request. Use a select statement to ensure write is non-blocking.
-			traceEntry := TraceLog{
+			traceEntry := TraceEntry{
 				Timestamp:     time.Now(),
 				TraceId:       traceId,
 				CorrelationId: request.CorrelationId,
@@ -99,7 +132,7 @@ func Trace(traceChan chan TraceLog) usrv.EndpointOption {
 					errMsg = errVal.(string)
 				}
 
-				traceEntry := TraceLog{
+				traceEntry := TraceEntry{
 					Timestamp:     time.Now(),
 					TraceId:       traceId,
 					CorrelationId: request.CorrelationId,

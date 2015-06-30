@@ -7,12 +7,15 @@ import (
 
 	"errors"
 
+	"reflect"
+	"sort"
+
 	"github.com/achilleasa/usrv"
 	"github.com/achilleasa/usrv/usrvtest"
 	"golang.org/x/net/context"
 )
 
-func TestTraceWithoutTraceId(t *testing.T) {
+func TestTracerWithoutTraceId(t *testing.T) {
 	ep := usrv.Endpoint{
 		Name: "traceTest",
 		Handler: usrv.HandlerFunc(func(ctx context.Context, rw usrv.ResponseWriter, req *usrv.Message) {
@@ -21,10 +24,10 @@ func TestTraceWithoutTraceId(t *testing.T) {
 
 	var err error
 
-	traceChan := make(chan TraceLog, 10)
-	err = Trace(traceChan)(&ep)
+	traceChan := make(chan TraceEntry, 10)
+	err = Tracer(traceChan)(&ep)
 	if err != nil {
-		t.Fatalf("Error applying Trace() to endpoint: %v", err)
+		t.Fatalf("Error applying Tracer() to endpoint: %v", err)
 	}
 
 	msg := &usrv.Message{
@@ -43,7 +46,7 @@ func TestTraceWithoutTraceId(t *testing.T) {
 	}
 
 	// Fetch generated tracelogs
-	var traceIn, traceOut TraceLog
+	var traceIn, traceOut TraceEntry
 	select {
 	case traceIn = <-traceChan:
 	case <-time.After(time.Second * 1):
@@ -98,7 +101,7 @@ func TestTraceWithoutTraceId(t *testing.T) {
 
 }
 
-func TestTraceWithExistingTraceId(t *testing.T) {
+func TestTracerWithExistingTraceId(t *testing.T) {
 	ep := usrv.Endpoint{
 		Name: "traceTest",
 		Handler: usrv.HandlerFunc(func(ctx context.Context, rw usrv.ResponseWriter, req *usrv.Message) {
@@ -107,10 +110,10 @@ func TestTraceWithExistingTraceId(t *testing.T) {
 
 	var err error
 
-	traceChan := make(chan TraceLog, 10)
-	err = Trace(traceChan)(&ep)
+	traceChan := make(chan TraceEntry, 10)
+	err = Tracer(traceChan)(&ep)
 	if err != nil {
-		t.Fatalf("Error applying Trace() to endpoint: %v", err)
+		t.Fatalf("Error applying Tracer() to endpoint: %v", err)
 	}
 
 	msg := &usrv.Message{
@@ -136,7 +139,7 @@ func TestTraceWithExistingTraceId(t *testing.T) {
 	}
 
 	// Fetch generated tracelogs
-	var traceIn, traceOut TraceLog
+	var traceIn, traceOut TraceEntry
 	select {
 	case traceIn = <-traceChan:
 	case <-time.After(time.Second * 1):
@@ -191,7 +194,7 @@ func TestTraceWithExistingTraceId(t *testing.T) {
 
 }
 
-func TestTraceWithError(t *testing.T) {
+func TestTracerWithError(t *testing.T) {
 	ep := usrv.Endpoint{
 		Name: "traceTest",
 		Handler: usrv.HandlerFunc(func(ctx context.Context, rw usrv.ResponseWriter, req *usrv.Message) {
@@ -201,10 +204,10 @@ func TestTraceWithError(t *testing.T) {
 
 	var err error
 
-	traceChan := make(chan TraceLog, 10)
-	err = Trace(traceChan)(&ep)
+	traceChan := make(chan TraceEntry, 10)
+	err = Tracer(traceChan)(&ep)
 	if err != nil {
-		t.Fatalf("Error applying Trace() to endpoint: %v", err)
+		t.Fatalf("Error applying Tracer() to endpoint: %v", err)
 	}
 
 	msg := &usrv.Message{
@@ -223,7 +226,7 @@ func TestTraceWithError(t *testing.T) {
 	}
 
 	// Fetch generated tracelogs
-	var traceOut TraceLog
+	var traceOut TraceEntry
 	select {
 	case _ = <-traceChan:
 	case <-time.After(time.Second * 1):
@@ -258,7 +261,7 @@ func TestTraceWithError(t *testing.T) {
 
 }
 
-func TestTraceNonBlockingMode(t *testing.T) {
+func TestTracerNonBlockingMode(t *testing.T) {
 	ep := usrv.Endpoint{
 		Name: "traceTest",
 		Handler: usrv.HandlerFunc(func(ctx context.Context, rw usrv.ResponseWriter, req *usrv.Message) {
@@ -268,10 +271,10 @@ func TestTraceNonBlockingMode(t *testing.T) {
 
 	var err error
 
-	traceChan := make(chan TraceLog)
-	err = Trace(traceChan)(&ep)
+	traceChan := make(chan TraceEntry)
+	err = Tracer(traceChan)(&ep)
 	if err != nil {
-		t.Fatalf("Error applying Trace() to endpoint: %v", err)
+		t.Fatalf("Error applying Tracer() to endpoint: %v", err)
 	}
 
 	msg := &usrv.Message{
@@ -294,6 +297,67 @@ func TestTraceNonBlockingMode(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second * 1):
-		t.Fatalf("Expected Trace() middleware to drop logs as traceChan cannot be written to without blocking")
+		t.Fatalf("Expected Tracer() middleware to drop logs as traceChan cannot be written to without blocking")
+	}
+}
+
+func TestTraceSorting(t *testing.T) {
+	now := time.Now()
+
+	type spec struct {
+		input    Trace
+		expected Trace
+	}
+
+	testCases := []spec{
+		{
+			input: Trace{
+				TraceEntry{Type: Request, Timestamp: now.Add(time.Second * 2)},
+				TraceEntry{Type: Response, Timestamp: now.Add(time.Second)},
+				TraceEntry{Type: Request, Timestamp: now},
+			},
+			expected: Trace{
+				TraceEntry{Type: Request, Timestamp: now},
+				TraceEntry{Type: Response, Timestamp: now.Add(time.Second)},
+				TraceEntry{Type: Request, Timestamp: now.Add(time.Second * 2)},
+			},
+		},
+		{
+			input: Trace{
+				TraceEntry{Type: Response, Timestamp: now},
+				TraceEntry{Type: Request, Timestamp: now},
+			},
+			expected: Trace{
+				TraceEntry{Type: Request, Timestamp: now},
+				TraceEntry{Type: Response, Timestamp: now},
+			},
+		},
+		{
+			input: Trace{
+				TraceEntry{Type: Request, Timestamp: now},
+				TraceEntry{Type: Response, Timestamp: now},
+			},
+			expected: Trace{
+				TraceEntry{Type: Request, Timestamp: now},
+				TraceEntry{Type: Response, Timestamp: now},
+			},
+		},
+		{
+			input: Trace{
+				TraceEntry{Type: Request, Timestamp: now},
+				TraceEntry{Type: Response, Timestamp: now.Add(time.Second)},
+			},
+			expected: Trace{
+				TraceEntry{Type: Request, Timestamp: now},
+				TraceEntry{Type: Response, Timestamp: now.Add(time.Second)},
+			},
+		},
+	}
+
+	for index, testCase := range testCases {
+		sort.Sort(testCase.input)
+		if !reflect.DeepEqual(testCase.expected, testCase.input) {
+			t.Fatalf("[case %d] expected sort output to be %v; got %v", index, testCase.expected, testCase.input)
+		}
 	}
 }
