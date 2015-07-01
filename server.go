@@ -11,8 +11,7 @@ import (
 
 // Context keys.
 const (
-	CtxCurEndpoint = "curEndpoint"
-	CtxTraceId     = "traceId"
+	CtxCurEndpoint = "cur_endpoint"
 )
 
 // An RPC server implementation.
