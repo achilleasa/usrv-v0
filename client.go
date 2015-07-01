@@ -10,6 +10,24 @@ import (
 	"golang.org/x/net/context"
 )
 
+var (
+	// A RW mutex for protecting access to the injectedCtxFields map.
+	injectCtxFieldsMutex sync.RWMutex
+
+	// A set of ctx field names that should be injected by clients as headers into outgoing messages
+	// if present in the request ctx
+	injectCtxFields = make(map[string]struct{})
+)
+
+// Add fieldName to the list of ctx fields that will be injected by clients as headers into outgoing messages
+// if present in the request ctx.
+func InjectCtxFieldToClients(ctxField string) {
+	injectCtxFieldsMutex.Lock()
+	defer injectCtxFieldsMutex.Unlock()
+
+	injectCtxFields[ctxField] = struct{}{}
+}
+
 // This structure models a server response to an outgoing client request.
 type ServerResponse struct {
 	// The server response message.
@@ -265,12 +283,14 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 		msg.From = curEndpoint.(string)
 	}
 
-	// Check the supplied context for the present of a traceId. If found,
-	// inject it into the outgoing request headers
-	traceId := ctx.Value(CtxTraceId)
-	if traceId != nil {
-		msg.Headers[CtxTraceId] = traceId
+	injectCtxFieldsMutex.RLock()
+	for ctxField, _ := range injectCtxFields {
+		val := ctx.Value(ctxField)
+		if val != nil {
+			msg.Headers[ctxField] = val
+		}
 	}
+	injectCtxFieldsMutex.RUnlock()
 
 	// Assign the private queue name as the message reply target and
 	// the target endpoint as the "To" field of the outgoing message.

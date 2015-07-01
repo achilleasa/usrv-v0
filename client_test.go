@@ -269,13 +269,14 @@ func TestClientHeaders(t *testing.T) {
 		value  interface{}
 	}
 
+	usrv.InjectCtxFieldToClients("traceId")
 	headerSpec := []header{
 		{
 			usrv.CtxCurEndpoint,
 			"com.test.client",
 		},
 		{
-			usrv.CtxTraceId,
+			"traceId",
 			"trace-1",
 		},
 	}
@@ -293,9 +294,9 @@ func TestClientHeaders(t *testing.T) {
 	clientReq := <-serverBinding.Messages
 
 	// Check that the correct headers are filled in
-	v := clientReq.Message.Headers.Get(usrv.CtxTraceId)
+	v := clientReq.Message.Headers.Get("traceId")
 	if v != "trace-1" {
-		t.Fatalf("Expected header %s = %s to be set; got value %s", usrv.CtxTraceId, "trace-1", v)
+		t.Fatalf("Expected header %s = %s to be set; got value %v", "traceId", "trace-1", v)
 	}
 
 	// Check From field
