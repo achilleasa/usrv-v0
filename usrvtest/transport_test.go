@@ -132,46 +132,6 @@ func TestFailMasks(t *testing.T) {
 	}
 }
 
-func TestDialPolicy(t *testing.T) {
-	var err error
-	transport := NewTransport()
-
-	policy := usrv.PeriodicPolicy(1, time.Millisecond*1)
-	transport.SetDialPolicy(policy)
-
-	err = transport.Dial()
-	if err != nil {
-		t.Fatalf("Dial() failed: %v", err)
-	}
-
-	// Multiple close invocations should have no side-effects
-	transport.Close()
-	transport.Close()
-
-	// Check for dial policy timeout error
-	transport.SetFailMask(FailDial)
-	err = transport.Dial()
-	if err != usrv.ErrDialFailed {
-		t.Fatalf("Expected first Dial() to fail")
-	}
-
-	if policy.CurAttempt() != 1 {
-		t.Fatalf("Expected dial policy CurAttempt() to return %d; got %d", 1, policy.CurAttempt())
-	}
-
-	transport.SetFailMask(0)
-
-	// Second redial should fail due to dial policy
-	err = transport.Dial()
-	if err != usrv.ErrDialFailed {
-		t.Fatalf("Expected second Dial() to fail")
-	}
-
-	if policy.CurAttempt() != 2 {
-		t.Fatalf("Expected dial policy CurAttempt() to return %d; got %d", 2, policy.CurAttempt())
-	}
-}
-
 func TestNotifications(t *testing.T) {
 	var err error
 	transport := NewTransport()

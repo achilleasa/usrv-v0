@@ -8,8 +8,8 @@ import (
 
 	"sync"
 
-	"errors"
-
+	"github.com/achilleasa/service-adapters"
+	amqpAdapter "github.com/achilleasa/service-adapters/amqp"
 	"github.com/achilleasa/usrv"
 	"github.com/streadway/amqp"
 )
@@ -17,44 +17,34 @@ import (
 // The Amqp type represents a transport service that can talk to AMQP servers (e.g. rabbitmq)
 type Amqp struct {
 
-	// A mutex protecting dial attempts.
+	// A mutex that guards access to the struct fields.
 	sync.Mutex
+
+	// The amqp connection adapter
+	srvAdapter *amqpAdapter.Amqp
 
 	// The logger for server messages.
 	logger *log.Logger
 
-	// AMQP connection handle.
-	conn *amqp.Connection
-
 	// AMQP channel handle.
 	channel *amqp.Channel
 
-	// AMQP endpoint.
-	amqpEndpoint string
-
-	// Connection status.
-	connected bool
-
-	// The dial policy to use.
-	dialPolicy usrv.DialPolicy
-
-	// A list of listeners to be notified when the connection is lost.
-	closeListeners []chan error
+	// A notifier for close events.
+	closeNotifier *adapters.Notifier
 }
 
 // Create a new Amqp transport that will connect to uri. A logger instance
 // may also be specified if you require logging output from the transport.
-func NewAmqp(amqpEndpoint string, logger *log.Logger) *Amqp {
+func NewAmqp(service *amqpAdapter.Amqp, logger *log.Logger) *Amqp {
 
 	if logger == nil {
 		logger = log.New(ioutil.Discard, "", log.LstdFlags)
 	}
 
 	return &Amqp{
-		amqpEndpoint:   amqpEndpoint,
-		logger:         logger,
-		closeListeners: make([]chan error, 0),
-		dialPolicy:     usrv.PeriodicPolicy(1, time.Millisecond),
+		srvAdapter:    service,
+		logger:        logger,
+		closeNotifier: adapters.NewNotifier(),
 	}
 }
 
@@ -62,82 +52,28 @@ func NewAmqp(amqpEndpoint string, logger *log.Logger) *Amqp {
 func (a *Amqp) Dial() error {
 	a.Lock()
 	defer a.Unlock()
-
-	// We are already connected; ignore call
-	if a.connected {
-		return nil
-	}
-
-	var err error
-	var wait time.Duration
-	wait, err = a.dialPolicy.NextRetry()
-	for {
-		a.logger.Printf("Connecting to AMQP endpoint %s; attempt %d", a.amqpEndpoint, a.dialPolicy.CurAttempt())
-		a.conn, err = amqp.Dial(a.amqpEndpoint)
-		if err == nil {
-			break
+	err := a.srvAdapter.Dial()
+	if err != nil {
+		if err == adapters.ErrAlreadyConnected {
+			return nil
 		}
 
-		wait, err = a.dialPolicy.NextRetry()
-		if err != nil {
-			a.logger.Printf("Could not connect to AMQP endpoint %s after %d attempt(s)\n", a.amqpEndpoint, a.dialPolicy.CurAttempt())
-			return usrv.ErrDialFailed
-		}
-		fmt.Errorf("Could not connect to AMQP endpoint %s; retrying in %v\n", a.amqpEndpoint, wait)
-		<-time.After(wait)
+		return usrv.ErrDialFailed
 	}
-
-	a.logger.Printf("Connected to AMQP endpoint %s\n", a.amqpEndpoint)
 
 	// Allocate channel
-	a.channel, err = a.conn.Channel()
+	a.channel, err = a.srvAdapter.NewChannel()
 	if err != nil {
-		return fmt.Errorf("Error allocating AMQP channel: %s\n", err)
+		return err
 	}
-
-	a.connected = true
-	a.dialPolicy.ResetAttempts()
-
-	go func() {
-		amqpClose := make(chan *amqp.Error)
-		a.conn.NotifyClose(amqpClose)
-
-		err, normalShutdown := <-amqpClose
-		a.Lock()
-		defer a.Unlock()
-
-		for _, listener := range a.closeListeners {
-			if err != nil && normalShutdown {
-				listener <- errors.New(err.Error())
-			}
-			close(listener)
-		}
-	}()
 
 	return nil
 }
 
 // Close the transport.
 func (a *Amqp) Close() {
-	a.Lock()
-	defer a.Unlock()
-
-	if !a.connected {
-		return
-	}
-
-	// Close connection and notify any registered listeners
-	a.conn.Close()
-	for _, listener := range a.closeListeners {
-		listener <- usrv.ErrClosed
-		close(listener)
-	}
-
-	// Cleanup
-	a.conn = nil
+	a.srvAdapter.Close()
 	a.channel = nil
-	a.connected = false
-	a.closeListeners = make([]chan error, 0)
 }
 
 // Bind a client or server endpoint to the AMQP server.
@@ -265,21 +201,10 @@ func (a *Amqp) Send(msg *usrv.Message) error {
 	return err
 }
 
-// Set the dial policy for the transport.
-func (a *Amqp) SetDialPolicy(policy usrv.DialPolicy) {
-	a.Lock()
-	defer a.Unlock()
-
-	a.dialPolicy = policy
-}
-
 // Register a listener for receiving close notifications. The transport will emit an error and
 // close the channel if the transport is cleanly shut down or close the channel if the connection is reset.
 func (a *Amqp) NotifyClose(c chan error) {
-	a.Lock()
-	defer a.Unlock()
-
-	a.closeListeners = append(a.closeListeners, c)
+	a.closeNotifier.Add(c)
 }
 
 // The amqpResponseWriter provides an amqp-specific implementation of a ResponseWriter.

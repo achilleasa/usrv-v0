@@ -94,12 +94,8 @@ type Binding struct {
 // Objects implementing the Transport interface can be used
 // by both the Server and Client as message transports.
 type Transport interface {
-	// Set the dial policy for this transport.
-	SetDialPolicy(policy DialPolicy)
 
-	// Connect to the transport. If a dial policy has been specified,
-	// the transport will keep trying to reconnect until a connection
-	// is established or the dial policy aborts the reconnection attempt.
+	// Connect to the transport.
 	Dial() error
 
 	// Disconnect.

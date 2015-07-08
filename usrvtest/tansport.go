@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"code.google.com/p/go-uuid/uuid"
+	"github.com/achilleasa/service-adapters"
 	"github.com/achilleasa/usrv"
 )
 
@@ -22,17 +23,16 @@ const (
 // uses ResponseRecorder as its ResponseWriter implementation
 type InMemoryTransport struct {
 	sync.Mutex
-	closeListeners []chan error
+	closeListeners *adapters.Notifier
 	bindings       map[string]*usrv.Binding
 	failMask       FailMask
 	connected      bool
-	dialPolicy     usrv.DialPolicy
 }
 
 func NewTransport() *InMemoryTransport {
 	return &InMemoryTransport{
-		closeListeners: make([]chan error, 0),
 		bindings:       make(map[string]*usrv.Binding),
+		closeListeners: adapters.NewNotifier(),
 	}
 }
 
@@ -50,22 +50,11 @@ func (t *InMemoryTransport) Dial() error {
 		return nil
 	}
 
-	if t.dialPolicy != nil {
-		wait, err := t.dialPolicy.NextRetry()
-		if err != nil {
-			return usrv.ErrDialFailed
-		}
-		<-time.After(wait)
-	}
-
 	if (t.failMask & FailDial) == FailDial {
 		return usrv.ErrDialFailed
 	}
 
 	t.connected = true
-	if t.dialPolicy != nil {
-		t.dialPolicy.ResetAttempts()
-	}
 	return nil
 }
 
@@ -81,15 +70,11 @@ func (t *InMemoryTransport) Close() {
 		close(binding.Messages)
 	}
 
-	for _, listener := range t.closeListeners {
-		listener <- usrv.ErrClosed
-		close(listener)
-	}
+	t.closeListeners.NotifyAll(usrv.ErrClosed)
 
 	// Clear all listeners and bindings
 	t.connected = false
 	t.bindings = make(map[string]*usrv.Binding)
-	t.closeListeners = make([]chan error, 0)
 }
 
 // Bind an endpoint to the transport.
@@ -165,10 +150,7 @@ func (t *InMemoryTransport) Send(msg *usrv.Message) error {
 }
 
 func (t *InMemoryTransport) NotifyClose(c chan error) {
-	t.Lock()
-	defer t.Unlock()
-
-	t.closeListeners = append(t.closeListeners, c)
+	t.closeListeners.Add(c)
 }
 
 // Simulate a connection reset.
@@ -181,16 +163,9 @@ func (t *InMemoryTransport) Reset() {
 	}
 
 	// Close all listeners to indicate a reset
-	for _, listener := range t.closeListeners {
-		close(listener)
-	}
+	t.closeListeners.NotifyAll(nil)
 
 	// Clear all listeners and bindings
 	t.bindings = make(map[string]*usrv.Binding)
-	t.closeListeners = make([]chan error, 0)
 	t.connected = false
-}
-
-func (t *InMemoryTransport) SetDialPolicy(policy usrv.DialPolicy) {
-	t.dialPolicy = policy
 }
