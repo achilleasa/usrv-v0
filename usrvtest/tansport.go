@@ -2,6 +2,7 @@ package usrvtest
 
 import (
 	"errors"
+	"log"
 	"time"
 
 	"sync"
@@ -168,4 +169,9 @@ func (t *InMemoryTransport) Reset() {
 	// Clear all listeners and bindings
 	t.bindings = make(map[string]*usrv.Binding)
 	t.connected = false
+}
+
+// Set logger.
+func (t *InMemoryTransport) SetLogger(logger *log.Logger) {
+	// no-op
 }

@@ -1,6 +1,9 @@
 package usrv
 
-import "time"
+import (
+	"log"
+	"time"
+)
 
 type BindingType int
 
@@ -100,6 +103,9 @@ type Transport interface {
 
 	// Disconnect.
 	Close()
+
+	// Set logger.
+	SetLogger(logger *log.Logger)
 
 	// Bind an endpoint to the transport. The implementation should monitor the passed
 	// context and terminate the binding once the context is cancelled.
