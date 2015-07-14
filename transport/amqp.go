@@ -33,17 +33,12 @@ type Amqp struct {
 	closeNotifier *adapters.Notifier
 }
 
-// Create a new Amqp transport that will connect to uri. A logger instance
-// may also be specified if you require logging output from the transport.
-func NewAmqp(service *amqpAdapter.Amqp, logger *log.Logger) *Amqp {
-
-	if logger == nil {
-		logger = log.New(ioutil.Discard, "", log.LstdFlags)
-	}
+// Create a new Amqp transport that will connect to uri.
+func NewAmqp(service *amqpAdapter.Amqp) *Amqp {
 
 	return &Amqp{
 		srvAdapter:    service,
-		logger:        logger,
+		logger:        log.New(ioutil.Discard, "", log.LstdFlags),
 		closeNotifier: adapters.NewNotifier(),
 	}
 }
@@ -207,54 +202,7 @@ func (a *Amqp) NotifyClose(c chan error) {
 	a.closeNotifier.Add(c)
 }
 
-// The amqpResponseWriter provides an amqp-specific implementation of a ResponseWriter.
-type amqpResponseWriter struct {
-	// The amqp instance handle.
-	amqp *Amqp
-
-	// An allocated message for encoding the written data.
-	message *usrv.Message
-
-	// Indicates whether this response has been flushed.
-	flushed bool
-}
-
-// Get back the headers that will be sent with the response payload.
-// Modifying headers after invoking Write (or WriteError) has no effect.
-func (w *amqpResponseWriter) Header() usrv.Header {
-	return w.message.Headers
-}
-
-// Write an error to the response.
-func (w *amqpResponseWriter) WriteError(err error) error {
-	if w.flushed {
-		return usrv.ErrResponseSent
-	}
-
-	w.message.Headers.Set("error", err.Error())
-
-	return nil
-}
-
-// Write the data to the response and return the number of bytes that were actually written.
-func (w *amqpResponseWriter) Write(data []byte) (int, error) {
-	if w.flushed {
-		return 0, usrv.ErrResponseSent
-	}
-
-	w.message.Payload = data
-
-	return len(data), nil
-}
-
-// Flush the written data and headers and close the ResponseWriter. Repeated invocations
-// of Close() should fail with ErrResponseSent.
-func (w *amqpResponseWriter) Close() error {
-	if w.flushed {
-		return usrv.ErrResponseSent
-	}
-
-	w.flushed = true
-
-	return w.amqp.Send(w.message)
+// Set logger.
+func (a *Amqp) SetLogger(logger *log.Logger) {
+	a.logger = logger
 }
