@@ -107,7 +107,7 @@ func (a *Amqp) Bind(bindingType usrv.BindingType, endpoint string) (*usrv.Bindin
 		return nil, fmt.Errorf("Error declaring endpoint queue %s: %s\n", endpoint, err)
 	}
 
-	a.logger.Printf("Declared queue %s for endpoint: %s\n", queue.Name, endpoint)
+	a.logger.Printf("[TRANSPORT] Declared queue %s for endpoint: %s\n", queue.Name, endpoint)
 
 	// Create queue consumer
 	deliveries, err := a.channel.Consume(
@@ -132,7 +132,7 @@ func (a *Amqp) Bind(bindingType usrv.BindingType, endpoint string) (*usrv.Bindin
 
 				// Channel closed; exit worker
 				if !ok {
-					a.logger.Printf("Shutting down listener for endpoint %s\n", endpoint)
+					a.logger.Printf("[TRANSPORT] Shutting down listener for endpoint %s\n", endpoint)
 					return
 				}
 
