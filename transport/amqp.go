@@ -8,9 +8,9 @@ import (
 
 	"sync"
 
-	"github.com/achilleasa/service-adapters"
-	amqpAdapter "github.com/achilleasa/service-adapters/service/amqp"
 	"github.com/achilleasa/usrv"
+	"github.com/achilleasa/usrv-service-adapters"
+	amqpAdapter "github.com/achilleasa/usrv-service-adapters/service/amqp"
 	"github.com/streadway/amqp"
 )
 

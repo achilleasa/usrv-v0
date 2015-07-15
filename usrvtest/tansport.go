@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"code.google.com/p/go-uuid/uuid"
-	"github.com/achilleasa/service-adapters"
 	"github.com/achilleasa/usrv"
+	"github.com/achilleasa/usrv-service-adapters"
 )
 
 type FailMask int
