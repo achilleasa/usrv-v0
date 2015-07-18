@@ -5,7 +5,7 @@ import "github.com/achilleasa/usrv"
 // The amqpResponseWriter provides an amqp-specific implementation of a ResponseWriter.
 type amqpResponseWriter struct {
 	// The amqp instance handle.
-	amqp *Amqp
+	amqp *amqp
 
 	// An allocated message for encoding the written data.
 	message *usrv.Message

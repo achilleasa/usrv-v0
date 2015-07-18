@@ -11,11 +11,18 @@ import (
 	"github.com/achilleasa/usrv"
 	"github.com/achilleasa/usrv-service-adapters"
 	amqpAdapter "github.com/achilleasa/usrv-service-adapters/service/amqp"
-	"github.com/streadway/amqp"
+	amqpDrv "github.com/streadway/amqp"
 )
 
+// Amqp is a singleton transport instance that works with the amqp service adapter
+var Amqp *amqp = &amqp{
+	srvAdapter:    amqpAdapter.Adapter,
+	logger:        log.New(ioutil.Discard, "", log.LstdFlags),
+	closeNotifier: adapters.NewNotifier(),
+}
+
 // The Amqp type represents a transport service that can talk to AMQP servers (e.g. rabbitmq)
-type Amqp struct {
+type amqp struct {
 
 	// A mutex that guards access to the struct fields.
 	sync.Mutex
@@ -27,32 +34,18 @@ type Amqp struct {
 	logger *log.Logger
 
 	// AMQP channel handle.
-	channel *amqp.Channel
+	channel *amqpDrv.Channel
 
 	// A notifier for close events.
 	closeNotifier *adapters.Notifier
 }
 
-// Create a new Amqp transport that will connect to uri.
-func NewAmqp(service *amqpAdapter.Amqp) *Amqp {
-
-	return &Amqp{
-		srvAdapter:    service,
-		logger:        log.New(ioutil.Discard, "", log.LstdFlags),
-		closeNotifier: adapters.NewNotifier(),
-	}
-}
-
 // Connect to the AMQP server.
-func (a *Amqp) Dial() error {
+func (a *amqp) Dial() error {
 	a.Lock()
 	defer a.Unlock()
 	err := a.srvAdapter.Dial()
 	if err != nil {
-		if err == adapters.ErrAlreadyConnected {
-			return nil
-		}
-
 		return usrv.ErrDialFailed
 	}
 
@@ -66,7 +59,7 @@ func (a *Amqp) Dial() error {
 }
 
 // Close the transport.
-func (a *Amqp) Close() {
+func (a *amqp) Close() {
 	a.srvAdapter.Close()
 	a.channel = nil
 }
@@ -77,8 +70,8 @@ func (a *Amqp) Close() {
 // client bindings a private amqp queue will be allocated so the server can route RPC responses
 // to this particular client.
 //
-func (a *Amqp) Bind(bindingType usrv.BindingType, endpoint string) (*usrv.Binding, error) {
-	var queue amqp.Queue
+func (a *amqp) Bind(bindingType usrv.BindingType, endpoint string) (*usrv.Binding, error) {
+	var queue amqpDrv.Queue
 	var err error
 
 	if bindingType == usrv.ServerBinding {
@@ -177,14 +170,14 @@ func (a *Amqp) Bind(bindingType usrv.BindingType, endpoint string) (*usrv.Bindin
 }
 
 // Send a message.
-func (a *Amqp) Send(msg *usrv.Message) error {
+func (a *amqp) Send(msg *usrv.Message) error {
 	err := a.channel.Publish(
 		"",
 		msg.To,
 		false,
 		false,
-		amqp.Publishing{
-			Headers:       amqp.Table(msg.Headers),
+		amqpDrv.Publishing{
+			Headers:       amqpDrv.Table(msg.Headers),
 			CorrelationId: msg.CorrelationId,
 			AppId:         msg.From,
 			Timestamp:     msg.Timestamp,
@@ -198,11 +191,11 @@ func (a *Amqp) Send(msg *usrv.Message) error {
 
 // Register a listener for receiving close notifications. The transport will emit an error and
 // close the channel if the transport is cleanly shut down or close the channel if the connection is reset.
-func (a *Amqp) NotifyClose(c chan error) {
+func (a *amqp) NotifyClose(c chan error) {
 	a.closeNotifier.Add(c)
 }
 
 // Set logger.
-func (a *Amqp) SetLogger(logger *log.Logger) {
+func (a *amqp) SetLogger(logger *log.Logger) {
 	a.logger = logger
 }
