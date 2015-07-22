@@ -78,7 +78,7 @@ type Client struct {
 }
 
 // Create a new client for the given endpoint.
-func NewClient(transport Transport, endpoint string) *Client {
+func NewClient(transport Transport) *Client {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create server with default settings
@@ -89,7 +89,6 @@ func NewClient(transport Transport, endpoint string) *Client {
 		pendingMap:    make(map[string]chan ServerResponse),
 		jobChan:       make(chan job),
 		jobCancelChan: make(chan string),
-		endpoint:      endpoint,
 	}
 
 	// Spawn worker
@@ -110,10 +109,10 @@ func (client *Client) Dial() error {
 		return err
 	}
 
-	// Register transport close listener and then bind to the endpoint
+	// Register transport close listener and then allocate a random endpoint for server responses
 	client.closeNotifChan = make(chan error, 1)
 	client.transport.NotifyClose(client.closeNotifChan)
-	client.binding, err = client.transport.Bind(ClientBinding, client.endpoint)
+	client.binding, err = client.transport.Bind(ClientBinding, "")
 	if err != nil {
 		// Force a nil binding
 		client.binding = &Binding{}
@@ -238,21 +237,21 @@ func (client *Client) worker() {
 	}
 }
 
-// Create a new request to the underlying endpoint. Returns a read-only channel that
+// Create a new request to the specified endpoint. Returns a read-only channel that
 // will emit a ServerResponse once it is received by the server.
 //
 // If ctx is cancelled while the request is in progress, the client will fail the
 // request with ErrTimeout
-func (client *Client) Request(ctx context.Context, msg *Message) <-chan ServerResponse {
-	return client.RequestWithTimeout(ctx, msg, 0)
+func (client *Client) Request(ctx context.Context, msg *Message, endpoint string) <-chan ServerResponse {
+	return client.RequestWithTimeout(ctx, msg, 0, endpoint)
 }
 
-// Create a new request to the underlying endpoint with a client timeout. Returns a
+// Create a new request to the specified endpoint with a client timeout. Returns a
 // read-only channel that will emit a ServerResponse once it is received by the server.
 //
 // If the timeout expires or ctx is cancelled while the request is in progress, the client
 // will fail the request with ErrTimeout
-func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, timeout time.Duration) <-chan ServerResponse {
+func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, timeout time.Duration, endpoint string) <-chan ServerResponse {
 
 	// Allocate a buffered channel for the response. We use a buffered channel to
 	// ensure that our job queue does not block if the requester never reads from the
@@ -296,7 +295,7 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 	// the target endpoint as the "To" field of the outgoing message.
 	// Finally allocate a UUID for matching the async server reply
 	// to this request.
-	msg.To = client.endpoint
+	msg.To = endpoint
 	msg.CorrelationId = uuid.New()
 
 	reqJob := job{

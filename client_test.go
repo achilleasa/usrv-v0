@@ -12,6 +12,8 @@ import (
 	"golang.org/x/net/context"
 )
 
+var testEndpoint = "com.test.server"
+
 func TestClient(t *testing.T) {
 
 	var err error
@@ -23,13 +25,13 @@ func TestClient(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	defer client.Close()
 
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg)
+	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	clientReq := <-serverBinding.Messages
 	resMsg := &usrv.Message{
@@ -63,13 +65,13 @@ func TestRequestTimeout(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	defer client.Close()
 
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond*1)
+	resChan := client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond*1, testEndpoint)
 
 	// Wait for timeout
 	select {
@@ -94,7 +96,7 @@ func TestResponseWithServerError(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	defer client.Close()
 
 	type testSpec struct {
@@ -121,7 +123,7 @@ func TestResponseWithServerError(t *testing.T) {
 		reqMsg := &usrv.Message{
 			Payload: []byte("test request"),
 		}
-		resChan := client.Request(context.Background(), reqMsg)
+		resChan := client.Request(context.Background(), reqMsg, testEndpoint)
 
 		// Now that the reqMsg has been populated by the client use the data to
 		// setup a response with an error
@@ -162,7 +164,7 @@ func TestClientClose(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -170,7 +172,7 @@ func TestClientClose(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg)
+	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	// Close client and wait for the response
 	client.Close()
@@ -184,12 +186,12 @@ func TestClientClose(t *testing.T) {
 	}
 
 	// Requests on a closed client should automatically fail
-	resChan = client.Request(context.Background(), reqMsg)
+	resChan = client.Request(context.Background(), reqMsg, testEndpoint)
 	serverRes = <-resChan
 	if serverRes.Error != usrv.ErrClosed {
 		t.Fatalf("Expected Request() when client is closed to fail with ErrClosed; got %v", serverRes.Error)
 	}
-	resChan = client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond)
+	resChan = client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond, testEndpoint)
 	serverRes = <-resChan
 	if serverRes.Error != usrv.ErrClosed {
 		t.Fatalf("Expected RequestWithTimeout() when client is closed to fail with ErrClosed; got %v", serverRes.Error)
@@ -210,7 +212,7 @@ func TestHandleReplyWithUnknownId(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -219,7 +221,7 @@ func TestHandleReplyWithUnknownId(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg)
+	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	clientReq := <-serverBinding.Messages
 
@@ -258,7 +260,7 @@ func TestClientHeaders(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -289,7 +291,7 @@ func TestClientHeaders(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	client.Request(ctx, reqMsg)
+	client.Request(ctx, reqMsg, testEndpoint)
 
 	clientReq := <-serverBinding.Messages
 
@@ -317,21 +319,21 @@ func TestClientTransportErrors(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	err = client.Dial()
 	if err == nil || err != usrv.ErrDialFailed {
 		t.Fatalf("Expected '%s' error; got %v", usrv.ErrDialFailed.Error(), err)
 	}
 
 	transport.SetFailMask(usrvtest.FailBind)
-	client = usrv.NewClient(transport, "com.test.server")
+	client = usrv.NewClient(transport)
 	err = client.Dial()
 	if err == nil || err.Error() != "Bind failed" {
 		t.Fatalf("Expected 'Bind failed' error; got %v", err)
 	}
 
 	transport.SetFailMask(usrvtest.FailSend)
-	client = usrv.NewClient(transport, "com.test.server")
+	client = usrv.NewClient(transport)
 	err = client.Dial()
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
@@ -340,7 +342,7 @@ func TestClientTransportErrors(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg)
+	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	serverRes := <-resChan
 	if serverRes.Error == nil || serverRes.Error.Error() != "Send failed" {
@@ -359,7 +361,7 @@ func TestClientNonRecoverableTransportReset(t *testing.T) {
 		t.Fatalf("Error binding server endpoint: %v", err)
 	}
 
-	client := usrv.NewClient(transport, "com.test.server")
+	client := usrv.NewClient(transport)
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -376,7 +378,7 @@ func TestClientNonRecoverableTransportReset(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg)
+	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	serverRes := <-resChan
 	if serverRes.Error != usrv.ErrDialFailed {

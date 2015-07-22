@@ -101,7 +101,7 @@ pollLoop:
 	defer server.Close()
 
 	// Create a client for the endpoint
-	client := usrv.NewClient(transport, "com.test.foo")
+	client := usrv.NewClient(transport)
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -110,7 +110,7 @@ pollLoop:
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	serverRes := <-client.Request(context.Background(), reqMsg)
+	serverRes := <-client.Request(context.Background(), reqMsg, "com.test.foo")
 	if serverRes.Error != nil {
 		t.Fatalf("Server responded with error: %v", serverRes.Error)
 	}
@@ -302,7 +302,7 @@ pollLoop1:
 	}
 
 	// Create a client for the endpoint
-	client := usrv.NewClient(transport, "com.test.foo")
+	client := usrv.NewClient(transport)
 	if err != nil {
 		t.Fatalf("Error creating client: %v", err)
 	}
@@ -311,7 +311,7 @@ pollLoop1:
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	serverRes := <-client.Request(context.Background(), reqMsg)
+	serverRes := <-client.Request(context.Background(), reqMsg, "com.test.foo")
 	if serverRes.Error != nil {
 		t.Fatalf("Server responded with error: %v", serverRes.Error)
 	}
