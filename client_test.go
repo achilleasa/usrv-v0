@@ -31,7 +31,7 @@ func TestClient(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
+	resChan, correlationId := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	clientReq := <-serverBinding.Messages
 	resMsg := &usrv.Message{
@@ -39,6 +39,10 @@ func TestClient(t *testing.T) {
 		To:            clientReq.Message.ReplyTo,
 		CorrelationId: reqMsg.CorrelationId, // use generated correlationId
 		Payload:       []byte("test response"),
+	}
+
+	if correlationId != reqMsg.CorrelationId {
+		t.Fatalf("CorrelationId returned by client request not matching request correlation id; expected %s got %s", reqMsg.CorrelationId, correlationId)
 	}
 
 	// Enqueue response and wait for the client to pick it up
@@ -71,7 +75,11 @@ func TestRequestTimeout(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond*1, testEndpoint)
+	resChan, correlationId := client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond*1, testEndpoint)
+
+	if correlationId == "" {
+		t.Fatalf("Expected client to return a valid correlationId; got blank correlation id")
+	}
 
 	// Wait for timeout
 	select {
@@ -123,7 +131,7 @@ func TestResponseWithServerError(t *testing.T) {
 		reqMsg := &usrv.Message{
 			Payload: []byte("test request"),
 		}
-		resChan := client.Request(context.Background(), reqMsg, testEndpoint)
+		resChan, _ := client.Request(context.Background(), reqMsg, testEndpoint)
 
 		// Now that the reqMsg has been populated by the client use the data to
 		// setup a response with an error
@@ -172,7 +180,7 @@ func TestClientClose(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
+	resChan, _ := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	// Close client and wait for the response
 	client.Close()
@@ -186,12 +194,12 @@ func TestClientClose(t *testing.T) {
 	}
 
 	// Requests on a closed client should automatically fail
-	resChan = client.Request(context.Background(), reqMsg, testEndpoint)
+	resChan, _ = client.Request(context.Background(), reqMsg, testEndpoint)
 	serverRes = <-resChan
 	if serverRes.Error != usrv.ErrClosed {
 		t.Fatalf("Expected Request() when client is closed to fail with ErrClosed; got %v", serverRes.Error)
 	}
-	resChan = client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond, testEndpoint)
+	resChan, _ = client.RequestWithTimeout(context.Background(), reqMsg, time.Millisecond, testEndpoint)
 	serverRes = <-resChan
 	if serverRes.Error != usrv.ErrClosed {
 		t.Fatalf("Expected RequestWithTimeout() when client is closed to fail with ErrClosed; got %v", serverRes.Error)
@@ -221,7 +229,7 @@ func TestHandleReplyWithUnknownId(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
+	resChan, _ := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	clientReq := <-serverBinding.Messages
 
@@ -342,7 +350,7 @@ func TestClientTransportErrors(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
+	resChan, _ := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	serverRes := <-resChan
 	if serverRes.Error == nil || serverRes.Error.Error() != "Send failed" {
@@ -378,7 +386,7 @@ func TestClientNonRecoverableTransportReset(t *testing.T) {
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	resChan := client.Request(context.Background(), reqMsg, testEndpoint)
+	resChan, _ := client.Request(context.Background(), reqMsg, testEndpoint)
 
 	serverRes := <-resChan
 	if serverRes.Error != usrv.ErrDialFailed {

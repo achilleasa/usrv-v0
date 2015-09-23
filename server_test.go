@@ -110,7 +110,9 @@ pollLoop:
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	serverRes := <-client.Request(context.Background(), reqMsg, "com.test.foo")
+
+	resChan, _ := client.Request(context.Background(), reqMsg, "com.test.foo")
+	serverRes := <-resChan
 	if serverRes.Error != nil {
 		t.Fatalf("Server responded with error: %v", serverRes.Error)
 	}
@@ -311,7 +313,8 @@ pollLoop1:
 	reqMsg := &usrv.Message{
 		Payload: []byte("test request"),
 	}
-	serverRes := <-client.Request(context.Background(), reqMsg, "com.test.foo")
+	resChan, _ := client.Request(context.Background(), reqMsg, "com.test.foo")
+	serverRes := <-resChan
 	if serverRes.Error != nil {
 		t.Fatalf("Server responded with error: %v", serverRes.Error)
 	}

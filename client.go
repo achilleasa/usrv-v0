@@ -238,20 +238,23 @@ func (client *Client) worker() {
 }
 
 // Create a new request to the specified endpoint. Returns a read-only channel that
-// will emit a ServerResponse once it is received by the server.
+// will emit a ServerResponse once it is received by the server and the request
+// correlationId.
 //
 // If ctx is cancelled while the request is in progress, the client will fail the
 // request with ErrTimeout
-func (client *Client) Request(ctx context.Context, msg *Message, endpoint string) <-chan ServerResponse {
-	return client.RequestWithTimeout(ctx, msg, 0, endpoint)
+func (client *Client) Request(ctx context.Context, msg *Message, endpoint string) (<-chan ServerResponse, string) {
+	srvRes, correlationId := client.RequestWithTimeout(ctx, msg, 0, endpoint)
+	return srvRes, correlationId
 }
 
 // Create a new request to the specified endpoint with a client timeout. Returns a
-// read-only channel that will emit a ServerResponse once it is received by the server.
+// read-only channel that will emit a ServerResponse once it is received by the server
+// and the request correlationId.
 //
 // If the timeout expires or ctx is cancelled while the request is in progress, the client
 // will fail the request with ErrTimeout
-func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, timeout time.Duration, endpoint string) <-chan ServerResponse {
+func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, timeout time.Duration, endpoint string) (<-chan ServerResponse, string) {
 
 	// Allocate a buffered channel for the response. We use a buffered channel to
 	// ensure that our job queue does not block if the requester never reads from the
@@ -263,7 +266,7 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 			nil,
 			ErrClosed,
 		}
-		return clientResChan
+		return clientResChan, ""
 	}
 
 	// If a non-zero timeout is specified, wrap the supplied ctx with a context that times out
@@ -325,7 +328,7 @@ func (client *Client) RequestWithTimeout(ctx context.Context, msg *Message, time
 		close(clientResChan)
 	}(ctx, msg.CorrelationId, reqJob.resChan, clientResChan)
 
-	return clientResChan
+	return clientResChan, msg.CorrelationId
 }
 
 // Shutdown the client and abort any pending requests with ErrCancelled.
