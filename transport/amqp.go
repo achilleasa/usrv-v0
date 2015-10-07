@@ -22,9 +22,8 @@ var (
 
 // Amqp is a singleton transport instance that works with the amqp service adapter
 var Amqp *amqp = &amqp{
-	srvAdapter:    amqpAdapter.Adapter,
-	logger:        log.New(ioutil.Discard, "", log.LstdFlags),
-	closeNotifier: adapters.NewNotifier(),
+	srvAdapter: amqpAdapter.Adapter,
+	logger:     log.New(ioutil.Discard, "", log.LstdFlags),
 }
 
 // The Amqp type represents a transport service that can talk to AMQP servers (e.g. rabbitmq)
@@ -230,7 +229,7 @@ func (a *amqp) Send(msg *usrv.Message) error {
 // Register a listener for receiving close notifications. The transport will emit an error and
 // close the channel if the transport is cleanly shut down or close the channel if the connection is reset.
 func (a *amqp) NotifyClose(c chan error) {
-	a.closeNotifier.Add(c)
+	a.srvAdapter.NotifyClose(c)
 }
 
 // Set logger.
