@@ -6,6 +6,7 @@ import (
 
 	"io/ioutil"
 
+	"github.com/achilleasa/usrv-service-adapters"
 	"golang.org/x/net/context"
 )
 
@@ -134,8 +135,8 @@ func (srv *Server) serve() error {
 	select {
 	case <-srv.ctx.Done():
 		// server is shutting down
-	case _, normalShutdown := <-srv.closeNotifChan:
-		if normalShutdown {
+	case reason := <-srv.closeNotifChan:
+		if reason == adapters.ErrConnectionClosed {
 			srv.Logger.Printf("Transport shutdown complete")
 			break
 		}
