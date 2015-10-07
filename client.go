@@ -185,6 +185,8 @@ func (client *Client) worker() {
 					err = ErrCancelled
 				} else if errMsg == ErrTimeout.Error() {
 					err = ErrTimeout
+				} else if errMsg == ErrServiceUnavailable.Error() {
+					err = ErrServiceUnavailable
 				} else {
 					err = errors.New(errMsg.(string))
 				}
