@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -12,6 +13,11 @@ import (
 	"github.com/achilleasa/usrv-service-adapters"
 	amqpAdapter "github.com/achilleasa/usrv-service-adapters/service/amqp"
 	amqpDrv "github.com/streadway/amqp"
+)
+
+// We need to repeat this error so as not to create a dependency loop with usrv
+var (
+	errServiceUnavailable = errors.New("Service not available")
 )
 
 // Amqp is a singleton transport instance that works with the amqp service adapter
@@ -117,10 +123,42 @@ func (a *amqp) Bind(bindingType usrv.BindingType, endpoint string) (*usrv.Bindin
 		return nil, fmt.Errorf("Error consuming from queue %s: %s\n", endpoint, err)
 	}
 
+	// Register listener for undelivered messages if this is a client binding
+	returns := make(chan amqpDrv.Return)
+	if bindingType == usrv.ClientBinding {
+		returns = a.channel.NotifyReturn(returns)
+	}
+
 	msgChan := make(chan usrv.TransportMessage)
 	go func() {
 		for {
 			select {
+			case r, ok := <-returns:
+				// Channel closed; exit worker
+				if !ok {
+					a.logger.Printf("[TRANSPORT] Shutting down listener for endpoint %s\n", endpoint)
+					return
+				}
+
+				// Emit a transport message to the msg channel notifying that message delivery failed
+				if r.Headers == nil {
+					r.Headers = amqpDrv.Table{}
+				}
+				headers := usrv.Header(r.Headers)
+				headers["error"] = errServiceUnavailable.Error()
+				msgChan <- usrv.TransportMessage{
+					ResponseWriter: nil,
+
+					Message: &usrv.Message{
+						Headers:       headers,
+						From:          endpoint,
+						To:            r.AppId,
+						CorrelationId: r.CorrelationId,
+						Timestamp:     r.Timestamp,
+						Payload:       nil,
+					},
+				}
+
 			case d, ok := <-deliveries:
 
 				// Channel closed; exit worker
@@ -174,7 +212,7 @@ func (a *amqp) Send(msg *usrv.Message) error {
 	err := a.channel.Publish(
 		"",
 		msg.To,
-		false,
+		true, // the server should immediately report undelived messages
 		false,
 		amqpDrv.Publishing{
 			Headers:       amqpDrv.Table(msg.Headers),
